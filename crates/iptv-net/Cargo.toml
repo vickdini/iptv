@@ -1,0 +1,14 @@
+[package]
+name = "iptv-net"
+description = "Playlist download/caching and channel health checks shared by IPTV front-ends"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+iptv-core = { path = "../iptv-core" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "2"
+url = "2"

@@ -2,10 +2,8 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod gui;
-mod health;
 mod mpv;
 mod panel;
-mod playlist;
 mod storage;
 
 use std::{path::PathBuf, time::Duration};
@@ -13,6 +11,7 @@ use std::{path::PathBuf, time::Duration};
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use iptv_core::{tuner::DIGIT_TIMEOUT_MS, Action, Effect, Tuner};
+use iptv_net::{health, playlist, DEFAULT_USER_AGENT};
 use serde_json::json;
 use tokio::time::Instant;
 
@@ -23,8 +22,6 @@ use crate::{
 };
 
 const DEFAULT_PLAYLIST: &str = "https://iptv-org.github.io/iptv/index.m3u";
-const DEFAULT_USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
 const PANEL_OVERLAY_ID: u32 = 1;
 const WHEEL_ROWS: isize = 3;
 
@@ -92,7 +89,7 @@ async fn load_channels(source: &str) -> Result<Vec<iptv_core::Channel>> {
     let source = source.to_string();
     let started = std::time::Instant::now();
     let (channels, freshness) =
-        tokio::task::spawn_blocking(move || playlist::load(&source)).await??;
+        tokio::task::spawn_blocking(move || playlist::load(&source, &storage::cache_dir())).await??;
     let what = match freshness {
         playlist::Freshness::UpToDate => "already up to date",
         playlist::Freshness::Downloaded => "downloaded new version",
@@ -166,7 +163,7 @@ async fn run(args: Args) -> Result<()> {
 
     // Hide channels already known to be dead; queue the rest for checking,
     // nearest to the current channel first.
-    let health = HealthCache::load();
+    let health = HealthCache::load(&storage::cache_dir());
     let mut jobs = Vec::new();
     for idx in 0..tuner.channels().len() {
         match health.get(&tuner.channels()[idx].url) {
@@ -186,7 +183,7 @@ async fn run(args: Args) -> Result<()> {
     let (check_tx, mut checks) = tokio::sync::mpsc::unbounded_channel::<CheckResult>();
     if !args.no_check {
         let jobs = jobs.into_iter().map(|i| (i, tuner.channels()[i].clone())).collect();
-        health::spawn_checker(jobs, DEFAULT_USER_AGENT, check_tx);
+        health::spawn_checker(jobs, DEFAULT_USER_AGENT, move |r| check_tx.send(r).is_ok());
     } else {
         drop(check_tx);
     }

@@ -1,0 +1,68 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
+
+android {
+    namespace = "io.github.vickdini.iptv"
+    compileSdk = 35
+    ndkVersion = "27.0.12077973"
+
+    defaultConfig {
+        applicationId = "io.github.vickdini.iptv"
+        minSdk = 24
+        targetSdk = 35
+        versionCode = 1
+        versionName = "0.1.0"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    // The Rust core (crates/iptv-android) is built by cargo-ndk into here.
+    sourceSets["main"].jniLibs.srcDir(layout.buildDirectory.dir("rustJniLibs"))
+}
+
+// Builds the shared Rust core for every Android CPU type before the app.
+// Requires: rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+//           cargo install cargo-ndk
+val cargoBuild by tasks.registering(Exec::class) {
+    val repoRoot = rootProject.projectDir.parentFile
+    val outDir = layout.buildDirectory.dir("rustJniLibs").get().asFile
+    workingDir = repoRoot
+    inputs.dir(File(repoRoot, "crates"))
+    inputs.file(File(repoRoot, "Cargo.lock"))
+    outputs.dir(outDir)
+    doFirst { environment("ANDROID_NDK_HOME", android.ndkDirectory.absolutePath) }
+    commandLine(
+        "cargo", "ndk",
+        "-t", "arm64-v8a", "-t", "armeabi-v7a", "-t", "x86_64",
+        "-P", "24",
+        "-o", outDir.absolutePath,
+        "build", "--release", "-p", "iptv-android",
+    )
+}
+tasks.named("preBuild") { dependsOn(cargoBuild) }
+
+dependencies {
+    val media3 = "1.5.0"
+    implementation("androidx.media3:media3-exoplayer:$media3")
+    implementation("androidx.media3:media3-exoplayer-hls:$media3")
+    implementation("androidx.media3:media3-exoplayer-dash:$media3")
+    implementation("androidx.media3:media3-ui:$media3")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.recyclerview:recyclerview:1.3.2")
+}

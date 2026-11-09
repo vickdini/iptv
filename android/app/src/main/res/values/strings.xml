@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">IPTV</string>
+    <string name="loading">Loading channels…</string>
+    <string name="load_failed">Could not load the channel list.\n%1$s\n\nCheck your internet connection, then tap here to try again.</string>
+    <string name="panel_hint">Tap to watch · long-press for favorite</string>
+    <string name="group_prev">Previous group</string>
+    <string name="group_next">Next group</string>
+    <string name="favorites_only">Favorites only</string>
+    <string name="close">Close</string>
+</resources>

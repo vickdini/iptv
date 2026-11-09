@@ -1,0 +1,407 @@
+package io.github.vickdini.iptv
+
+import android.annotation.SuppressLint
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
+import android.view.GestureDetector
+import android.view.Gravity
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.View
+import android.widget.FrameLayout
+import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.PlayerView
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.concurrent.Executors
+import kotlin.math.abs
+
+/**
+ * Full-screen TV. All channel logic is in the shared Rust [Core]; this class
+ * plays streams with ExoPlayer and turns touches / remote keys into actions.
+ *
+ * Phone: swipe up/down = change channel, tap = channel list, double-tap =
+ * previous channel, long-press = info. Remote: Up/Down = channel, OK = list
+ * (or confirm a typed number), Left/Right = group, digits = channel number.
+ */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+class MainActivity : AppCompatActivity() {
+
+    companion object {
+        const val PLAYLIST_URL = "https://iptv-org.github.io/iptv/index.m3u"
+        private const val TAG = "IPTV"
+    }
+
+    private lateinit var player: ExoPlayer
+    private lateinit var osd: TextView
+    private lateinit var status: TextView
+    private lateinit var panel: View
+    private lateinit var panelTitle: TextView
+    private lateinit var panelStatus: TextView
+    private lateinit var list: RecyclerView
+    private lateinit var adapter: ChannelAdapter
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val io = Executors.newSingleThreadExecutor()
+    private var loaded = false
+    private var currentTune: JSONObject? = null
+    private var currentSeq = 0
+    private var triedHls = false
+    private var digitsPending = false
+    private var names: Array<String> = emptyArray()
+    private var refreshPending = false
+    private var lastRefresh = 0L
+    private var lastTouch = 0L
+
+    private val hideOsd = Runnable { osd.visibility = View.GONE }
+    private val digitTimeout = Runnable { tvAction("digit-timeout") }
+    private val pollTask = object : Runnable {
+        override fun run() {
+            poll()
+            handler.postDelayed(this, 1000)
+        }
+    }
+    private val backClosesPanel = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() = hidePanel()
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        hideSystemBars()
+
+        osd = findViewById(R.id.osd)
+        status = findViewById(R.id.status)
+        panel = findViewById(R.id.panel)
+        panelTitle = findViewById(R.id.panelTitle)
+        panelStatus = findViewById(R.id.panelStatus)
+        list = findViewById(R.id.list)
+
+        adapter = ChannelAdapter(
+            onClick = { idx -> perform(Core.tuneTo(idx)) },
+            onLongClick = { idx ->
+                perform(Core.toggleFavorite(idx))
+                refreshList(keepPosition = true)
+            },
+        )
+        list.layoutManager = LinearLayoutManager(this)
+        list.adapter = adapter
+        list.itemAnimator = null
+        findViewById<View>(R.id.groupPrev).setOnClickListener { panelAction("group-prev") }
+        findViewById<View>(R.id.groupNext).setOnClickListener { panelAction("group-next") }
+        findViewById<View>(R.id.favOnly).setOnClickListener { panelAction("fav-only") }
+        findViewById<View>(R.id.closePanel).setOnClickListener { hidePanel() }
+        onBackPressedDispatcher.addCallback(this, backClosesPanel)
+
+        player = ExoPlayer.Builder(this).build()
+        findViewById<PlayerView>(R.id.player).player = player
+        player.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                val tune = currentTune ?: return
+                // URLs without an .m3u8 extension may still be HLS: retry once as HLS.
+                if (!triedHls && error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED) {
+                    triedHls = true
+                    startStream(tune, forceHls = true)
+                    return
+                }
+                perform(Core.playbackFailed(currentSeq))
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) Core.playbackStarted(currentSeq)
+            }
+        })
+
+        setupGestures()
+        Core.init(cacheDir.absolutePath, filesDir.absolutePath)
+        load()
+    }
+
+    private fun load() {
+        status.text = getString(R.string.loading)
+        status.visibility = View.VISIBLE
+        status.setOnClickListener(null)
+        io.execute {
+            // Names are fetched once here, off the main thread, for the channel list.
+            val result = runCatching { Core.loadPlaylist(PLAYLIST_URL).also { names = Core.names() } }
+            runOnUiThread {
+                result.onSuccess {
+                    adapter.names = names
+                    status.visibility = View.GONE
+                    loaded = true
+                    perform(Core.start())
+                    handler.removeCallbacks(pollTask)
+                    handler.post(pollTask)
+                }.onFailure { e ->
+                    status.text = getString(R.string.load_failed, e.message ?: "")
+                    status.setOnClickListener { load() }
+                }
+            }
+        }
+    }
+
+    // --- effects from the core ------------------------------------------------
+
+    /** Carries out the core's instructions; returns true if a number is being typed. */
+    private fun perform(effectsJson: String): Boolean {
+        val effects = JSONArray(effectsJson)
+        var typing = false
+        for (i in 0 until effects.length()) {
+            val e = effects.getJSONObject(i)
+            when (e.getString("type")) {
+                "tune" -> tune(e)
+                "osd" -> showOsd(e.getString("text"), e.getLong("ms"))
+                "digitTimer" -> {
+                    typing = true
+                    handler.removeCallbacks(digitTimeout)
+                    handler.postDelayed(digitTimeout, e.getLong("ms"))
+                }
+            }
+        }
+        if (!typing) handler.removeCallbacks(digitTimeout)
+        return typing
+    }
+
+    private fun tvAction(name: String, arg: String? = null) {
+        Log.d(TAG, "action $name ${arg ?: ""} (loaded=$loaded)")
+        if (!loaded) return
+        digitsPending = perform(Core.action(name, arg))
+    }
+
+    private fun tune(e: JSONObject) {
+        Log.d(TAG, "tune #${e.getInt("seq")}: ${e.getInt("number")} ${e.getString("name")}")
+        currentTune = e
+        currentSeq = e.getInt("seq")
+        triedHls = false
+        startStream(e, forceHls = false)
+        if (panel.visibility == View.VISIBLE) adapter.setCurrent(e.getInt("idx"))
+    }
+
+    private fun startStream(e: JSONObject, forceHls: Boolean) {
+        val url = e.getString("url")
+        val http = DefaultHttpDataSource.Factory()
+            .setUserAgent(e.getString("userAgent"))
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(10_000)
+            .setReadTimeoutMs(15_000)
+        if (!e.isNull("referrer")) http.setDefaultRequestProperties(mapOf("Referer" to e.getString("referrer")))
+        val item = MediaItem.Builder().setUri(url).apply {
+            if (forceHls || url.contains(".m3u8", ignoreCase = true)) setMimeType(MimeTypes.APPLICATION_M3U8)
+        }.build()
+        player.setMediaSource(DefaultMediaSourceFactory(http).createMediaSource(item))
+        player.prepare()
+        player.playWhenReady = true
+    }
+
+    private fun showOsd(text: String, ms: Long) {
+        Log.d(TAG, "osd: " + text.replace("\n", " | "))
+        // Keep messages clear of the channel list.
+        (osd.layoutParams as FrameLayout.LayoutParams).gravity =
+            Gravity.TOP or if (panel.visibility == View.VISIBLE) Gravity.END else Gravity.START
+        osd.requestLayout()
+        osd.text = text
+        osd.visibility = View.VISIBLE
+        handler.removeCallbacks(hideOsd)
+        handler.postDelayed(hideOsd, ms)
+    }
+
+    // --- channel list -----------------------------------------------------------
+
+    private fun showPanel() {
+        if (!loaded) return
+        panel.visibility = View.VISIBLE
+        backClosesPanel.isEnabled = true
+        osd.visibility = View.GONE
+        refreshList(keepPosition = false)
+    }
+
+    private fun hidePanel() {
+        panel.visibility = View.GONE
+        backClosesPanel.isEnabled = false
+    }
+
+    private fun panelAction(name: String) {
+        tvAction(name)
+        refreshList(keepPosition = false)
+    }
+
+    /** Reloads the list; keeps the scroll position when channels just appeared/disappeared. */
+    private fun refreshList(keepPosition: Boolean) {
+        val t0 = System.nanoTime()
+        val info = JSONObject(Core.listInfo())
+        panelTitle.text = info.getString("title")
+        panelStatus.text = if (info.isNull("status")) getString(R.string.panel_hint) else info.getString("status")
+        val lm = list.layoutManager as LinearLayoutManager
+        var anchorIdx = -1
+        var anchorTop = 0
+        if (keepPosition) {
+            val p = lm.findFirstVisibleItemPosition()
+            adapter.items.getOrNull(p)?.let {
+                anchorIdx = it
+                anchorTop = lm.findViewByPosition(p)?.top ?: 0
+            }
+        }
+        val current = info.getInt("current")
+        adapter.submit(Core.view(), Core.favorites(), current)
+        lastRefresh = SystemClock.uptimeMillis()
+        refreshPending = false
+        Log.d(TAG, "list refresh: ${adapter.itemCount} rows in ${(System.nanoTime() - t0) / 1_000_000} ms")
+        if (anchorIdx >= 0) {
+            lm.scrollToPositionWithOffset(adapter.positionOf(anchorIdx), anchorTop)
+        } else {
+            // After layout, so the list knows its height: current channel a third down.
+            list.post {
+                val pos = adapter.positionOf(current)
+                lm.scrollToPositionWithOffset(pos, list.height / 3)
+                list.post { lm.findViewByPosition(pos)?.requestFocus() } // for remote controls
+            }
+        }
+    }
+
+    private fun poll() {
+        if (!loaded) return
+        val r = JSONObject(Core.poll())
+        if (r.getBoolean("changed")) refreshPending = true
+        if (panel.visibility != View.VISIBLE) return
+        val now = SystemClock.uptimeMillis()
+        // Channels found dead while checking: update the list now and then,
+        // never while the user is touching or scrolling it.
+        if (refreshPending && now - lastRefresh > 2000 && now - lastTouch > 1500 &&
+            list.scrollState == RecyclerView.SCROLL_STATE_IDLE
+        ) {
+            refreshList(keepPosition = true)
+        } else if (!r.isNull("status")) {
+            panelStatus.text = r.getString("status")
+        }
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        lastTouch = SystemClock.uptimeMillis()
+        return super.dispatchTouchEvent(ev)
+    }
+
+    // --- input ------------------------------------------------------------------
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupGestures() {
+        val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent) = true
+
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                if (panel.visibility == View.VISIBLE) hidePanel() else showPanel()
+                return true
+            }
+
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                tvAction("prev")
+                return true
+            }
+
+            override fun onLongPress(e: MotionEvent) = tvAction("info")
+
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
+                if (abs(vy) > abs(vx) && abs(vy) > 500) {
+                    tvAction(if (vy < 0) "up" else "down") // swipe up = next channel
+                    return true
+                }
+                return false
+            }
+        })
+        findViewById<View>(R.id.touch).setOnTouchListener { _, ev -> detector.onTouchEvent(ev) }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && loaded && handleKey(event.keyCode)) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    /** Remote-control / keyboard keys. Returns true if handled. */
+    private fun handleKey(code: Int): Boolean {
+        val digit = when (code) {
+            in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> code - KeyEvent.KEYCODE_0
+            in KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_9 -> code - KeyEvent.KEYCODE_NUMPAD_0
+            else -> -1
+        }
+        if (digit >= 0) {
+            tvAction("digit", digit.toString())
+            return true
+        }
+        val panelOpen = panel.visibility == View.VISIBLE
+        when (code) {
+            KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> tvAction("up")
+            KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> tvAction("down")
+            KeyEvent.KEYCODE_DPAD_LEFT -> if (panelOpen) panelAction("group-prev") else tvAction("group-prev")
+            KeyEvent.KEYCODE_DPAD_RIGHT -> if (panelOpen) panelAction("group-next") else tvAction("group-next")
+            KeyEvent.KEYCODE_LAST_CHANNEL, KeyEvent.KEYCODE_DEL -> tvAction("prev")
+            KeyEvent.KEYCODE_INFO, KeyEvent.KEYCODE_I -> tvAction("info")
+            KeyEvent.KEYCODE_BOOKMARK, KeyEvent.KEYCODE_S -> tvAction("fav")
+            KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_GUIDE, KeyEvent.KEYCODE_L ->
+                if (panelOpen) hidePanel() else showPanel()
+            KeyEvent.KEYCODE_ESCAPE -> if (panelOpen) hidePanel() else return false
+            // With the list open, Up/Down/OK move through it and pick a channel.
+            KeyEvent.KEYCODE_DPAD_UP -> if (panelOpen) return false else tvAction("up")
+            KeyEvent.KEYCODE_DPAD_DOWN -> if (panelOpen) return false else tvAction("down")
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> when {
+                digitsPending -> tvAction("ok")
+                panelOpen -> return false
+                else -> showPanel()
+            }
+            else -> return false
+        }
+        return true
+    }
+
+    // --- lifecycle ----------------------------------------------------------------
+
+    override fun onStart() {
+        super.onStart()
+        if (loaded) {
+            currentTune?.let { startStream(it, forceHls = triedHls) }
+            handler.removeCallbacks(pollTask)
+            handler.post(pollTask)
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        player.stop()
+        handler.removeCallbacks(pollTask)
+        if (loaded) Core.save()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        player.release()
+        io.shutdown()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) hideSystemBars()
+    }
+
+    private fun hideSystemBars() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).run {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+    }
+}

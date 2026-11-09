@@ -10,7 +10,7 @@ use std::{
     collections::{HashMap, VecDeque},
     fs,
     io::Read,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -18,9 +18,6 @@ use std::{
 
 use iptv_core::Channel;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::UnboundedSender;
-
-use crate::storage;
 
 /// How long a check result is trusted before the channel is re-checked.
 pub const TTL: Duration = Duration::from_secs(6 * 3600);
@@ -55,8 +52,9 @@ fn now() -> u64 {
 }
 
 impl HealthCache {
-    pub fn load() -> Self {
-        let path = storage::cache_dir().join("health.json");
+    /// Loads saved results from `cache_dir/health.json`.
+    pub fn load(cache_dir: &Path) -> Self {
+        let path = cache_dir.join("health.json");
         let entries = fs::read_to_string(&path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -101,8 +99,13 @@ pub struct CheckResult {
 }
 
 /// Probes `jobs` (channel index + channel) on background threads, in order,
-/// sending each result to `tx`. Stops early once `tx` is closed.
-pub fn spawn_checker(jobs: Vec<(usize, Channel)>, default_ua: &'static str, tx: UnboundedSender<CheckResult>) {
+/// passing each result to `on_result`. Stops early once `on_result` returns
+/// false (e.g. the receiver is gone).
+pub fn spawn_checker<F>(jobs: Vec<(usize, Channel)>, default_ua: &'static str, on_result: F)
+where
+    F: Fn(CheckResult) -> bool + Send + Sync + 'static,
+{
+    let on_result = Arc::new(on_result);
     let queue = Arc::new(Mutex::new(VecDeque::from(jobs)));
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(5))
@@ -110,11 +113,11 @@ pub fn spawn_checker(jobs: Vec<(usize, Channel)>, default_ua: &'static str, tx: 
         .redirects(5)
         .build();
     for _ in 0..WORKERS {
-        let (queue, agent, tx) = (queue.clone(), agent.clone(), tx.clone());
+        let (queue, agent, on_result) = (queue.clone(), agent.clone(), on_result.clone());
         thread::spawn(move || loop {
             let Some((idx, ch)) = queue.lock().unwrap().pop_front() else { return };
             let probe = probe(&agent, &ch, default_ua);
-            if tx.send(CheckResult { idx, probe }).is_err() {
+            if !on_result(CheckResult { idx, probe }) {
                 return;
             }
         });

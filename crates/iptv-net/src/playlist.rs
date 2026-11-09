@@ -18,8 +18,6 @@ use anyhow::{bail, Context, Result};
 use iptv_core::{parse_m3u, Channel};
 use serde::{Deserialize, Serialize};
 
-use crate::storage;
-
 /// Validators the server gave us for the cached copy.
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct CacheMeta {
@@ -41,11 +39,11 @@ pub enum Freshness {
     Local,
 }
 
-/// Loads a playlist from a URL (refreshing the cached copy if the server has
-/// a newer one) or from a local file.
-pub fn load(source: &str) -> Result<(Vec<Channel>, Freshness)> {
+/// Loads a playlist from a URL (refreshing the copy cached in `cache_dir` if
+/// the server has a newer one) or from a local file.
+pub fn load(source: &str, cache_dir: &Path) -> Result<(Vec<Channel>, Freshness)> {
     let (text, freshness) = if is_url(source) {
-        load_url(source, &storage::cache_dir())?
+        load_url(source, cache_dir)?
     } else {
         let text = fs::read_to_string(source).with_context(|| format!("reading {source}"))?;
         (text, Freshness::Local)

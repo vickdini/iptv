@@ -8,7 +8,8 @@ By default the app uses the public [iptv-org](https://github.com/iptv-org/iptv)
 playlist, `https://iptv-org.github.io/iptv/index.m3u` (about 11,500 channels, of
 which roughly three quarters work at any given time).
 
-Runs on Windows today; Linux and macOS work from source; Android is planned.
+Runs on Windows and Android (phones, tablets and Android TV); Linux and macOS
+work from source.
 
 > [!IMPORTANT]
 > **Disclaimer.** This project does not host, provide, sell or modify any
@@ -50,6 +51,29 @@ download, compare its SHA-256 with `SHA256SUMS.txt` on the release page:
 ```powershell
 Get-FileHash IPTV-Setup-*.exe -Algorithm SHA256
 ```
+
+## Android
+
+The Android app (phones, tablets and Android TV, Android 7.0 or later) has the
+same features: the latest playlist on every launch, dead channels hidden
+automatically, channel numbers, groups and favorites. It plays in landscape,
+full screen.
+
+| Phone / tablet | Android TV remote | Action |
+| --- | --- | --- |
+| swipe up / down | Up / Down, Channel +/- | next / previous channel |
+| tap | OK | open / close the channel list |
+| double-tap | Backspace, Last channel | previous channel |
+| long-press | Info | channel info |
+| | Left / Right | previous / next group |
+| | 0–9 | go to channel number (OK to confirm) |
+| | Bookmark | toggle favorite |
+
+In the channel list: tap (or OK) watches a channel, long-press toggles a
+favorite, and the ◀ ▶ ★ buttons switch group / favorites only.
+
+There is no published Android download yet; build the APK from source (see
+[Building the Android app](#building-the-android-app)).
 
 ## Using it
 
@@ -209,6 +233,23 @@ not on a developer's PC:
 it (download it from the run's artifacts). The bundled mpv version is pinned
 by `MPV_URL` / `MPV_SHA256` in the workflow.
 
+### Building the Android app
+
+Requirements: the Android SDK with NDK 27 (e.g. via Android Studio), JDK 17
+or later, and the Rust Android targets plus `cargo-ndk`:
+
+```sh
+rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+cargo install cargo-ndk
+cd android
+./gradlew assembleDebug        # -> app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+Gradle builds the Rust core for arm64, armv7 and x86_64 (emulators)
+automatically before the app. `android/make-icons.py` regenerates the
+launcher icons and the Android TV banner.
+
 ## Architecture
 
 ```
@@ -218,14 +259,17 @@ crates/
     tuner.rs       TV state machine: Action (remote button) -> Vec<Effect>;
                    channel numbers, zapping, groups, favorites, dead channels
     browser.rs     scroll/selection model for the channel list
+  iptv-net/        networking shared by desktop and Android
+    playlist.rs    playlist download with conditional requests + local copy
+    health.rs      background channel checks + saved results
   iptv-desktop/    Windows / Linux / macOS application `iptv`
     main.rs        startup and event loop: mpv events -> Tuner -> mpv commands
     mpv.rs         runs mpv, JSON IPC (named pipe / Unix socket), key bindings
     panel.rs       channel list drawn as an mpv ASS overlay
-    playlist.rs    playlist download with conditional requests + local copy
-    health.rs      background channel checks + saved results
     storage.rs     config / cache locations, saved state
     gui.rs         Windows GUI integration (console attach, error dialog)
+  iptv-android/    JNI bridge: the Rust core as an Android native library
+android/           Android app (Kotlin, Media3/ExoPlayer), Gradle project
 packaging/windows/ installer script (Inno Setup), icon, third-party licenses
 .github/workflows/ release.yml: builds and publishes the installer on tag push
 ```
@@ -235,12 +279,15 @@ are bound to `script-message iptv <action>`, delivered to the app over IPC,
 turned into `Action`s, and the `Tuner`'s `Effect`s (`Tune`, `Osd`,
 `StartDigitTimer`, `Save`) are carried out by sending commands back to mpv.
 
-### Android (planned)
+### Android
 
-`iptv-core` depends only on `serde`, so it compiles for Android as is. An
-Android front-end only has to map D-pad / remote key events to `Action`s and
-carry out `Effect`s with a player (libmpv, or ExoPlayer/Media3 through a thin
-Kotlin UI calling `iptv-core` via `uniffi` or `jni`).
+The Android app reuses the same Rust code. `crates/iptv-android` is compiled
+into a native library (`libiptv_android.so`) holding the tuner, playlist and
+channel checks; the Kotlin app in `android/` only plays streams with
+Media3/ExoPlayer and turns touches and remote keys into actions. They talk
+through a small JNI interface (`Core.kt`): actions go in, JSON instructions
+(`tune`, `osd`, `digitTimer`) come out. Channel lists cross as plain integer
+arrays, so refreshing a list of ~11,000 channels stays cheap.
 
 ## License
 
