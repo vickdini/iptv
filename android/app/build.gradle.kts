@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
 }
 
 // Single source of truth for the version: the workspace Cargo.toml.
@@ -48,29 +47,28 @@ android {
         }
     }
 
+    // Kotlin targets the same JVM version (AGP 9 built-in Kotlin follows this).
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
 
     // The Rust core (crates/iptv-android) is built by cargo-ndk into here.
-    sourceSets["main"].jniLibs.srcDir(layout.buildDirectory.dir("rustJniLibs"))
+    sourceSets["main"].jniLibs.directories.add(layout.buildDirectory.dir("rustJniLibs").get().asFile.path)
 }
 
 // Builds the shared Rust core for every Android CPU type before the app.
 // Requires: rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 //           cargo install cargo-ndk
-val cargoBuild by tasks.registering(Exec::class) {
+val ndkDir = androidComponents.sdkComponents.ndkDirectory
+val cargoBuild = tasks.register<Exec>("cargoBuild") {
     val repoRoot = rootProject.projectDir.parentFile
     val outDir = layout.buildDirectory.dir("rustJniLibs").get().asFile
     workingDir = repoRoot
     inputs.dir(File(repoRoot, "crates"))
     inputs.file(File(repoRoot, "Cargo.lock"))
     outputs.dir(outDir)
-    doFirst { environment("ANDROID_NDK_HOME", android.ndkDirectory.absolutePath) }
+    doFirst { environment("ANDROID_NDK_HOME", ndkDir.get().asFile.absolutePath) }
     commandLine(
         "cargo", "ndk",
         "-t", "arm64-v8a", "-t", "armeabi-v7a", "-t", "x86_64",
