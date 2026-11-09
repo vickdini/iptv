@@ -35,6 +35,8 @@ import androidx.media3.cast.SessionAvailabilityListener
 import androidx.media3.common.MediaMetadata
 import androidx.mediarouter.app.MediaRouteButton
 import android.content.pm.PackageManager
+import android.app.UiModeManager
+import android.content.res.Configuration
 import com.google.android.gms.cast.framework.CastButtonFactory
 import com.google.android.gms.cast.framework.CastContext
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -138,6 +140,14 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.groupNext).setOnClickListener { panelAction("group-next") }
         findViewById<View>(R.id.favOnly).setOnClickListener { panelAction("fav-only") }
         findViewById<View>(R.id.closePanel).setOnClickListener { hidePanel() }
+        // Phones and tablets play full screen with the back gesture hidden, so
+        // leaving isn't obvious: offer an exit button. TV remotes have Back/Home.
+        if (!isTv()) {
+            findViewById<View>(R.id.exitApp).apply {
+                visibility = View.VISIBLE
+                setOnClickListener { exitApp() }
+            }
+        }
         onBackPressedDispatcher.addCallback(this, backClosesPanel)
 
         player = ExoPlayer.Builder(this).build()
@@ -445,6 +455,24 @@ class MainActivity : AppCompatActivity() {
             else -> return false
         }
         return true
+    }
+
+    /** Android TV, Google TV and Fire TV all report the television UI mode. */
+    private fun isTv(): Boolean =
+        getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
+            packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+
+    /** Stops playback (also on a Chromecast), saves, and closes the app. */
+    private fun exitApp() {
+        player.stop()
+        if (casting) {
+            runCatching {
+                @Suppress("DEPRECATION")
+                CastContext.getSharedInstance(this).sessionManager.endCurrentSession(true)
+            }
+        }
+        if (loaded) Core.save()
+        finishAndRemoveTask()
     }
 
     // --- Chromecast -----------------------------------------------------------------

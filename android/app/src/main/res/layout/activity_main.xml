@@ -98,6 +98,18 @@
                 android:layout_height="44dp"
                 android:visibility="gone" />
 
+            <!-- Exit the app (phones and tablets only; hidden on TV devices). -->
+            <ImageButton
+                android:id="@+id/exitApp"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="@drawable/item_bg"
+                android:contentDescription="@string/exit"
+                android:padding="10dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_exit"
+                android:visibility="gone" />
+
             <TextView
                 android:id="@+id/closePanel"
                 style="@style/PanelButton"

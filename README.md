@@ -84,6 +84,9 @@ full screen.
 The channel list has a **Search channels…** box at the top (phone keyboard,
 or the TV's on-screen keyboard: Up from the first channel reaches it).
 
+On phones and tablets, the ⏻ button in the channel list header exits the app
+(it also stops casting).
+
 In the channel list: tap (or OK) watches a channel, long-press toggles a
 favorite, and the ◀ ▶ ★ buttons switch group / favorites only.
 
