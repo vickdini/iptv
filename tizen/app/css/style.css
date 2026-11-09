@@ -1,0 +1,85 @@
+/* Designed for a 1920x1080 TV screen, viewed from the sofa. */
+html, body {
+    margin: 0;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    /* Transparent so the AVPlay video plane behind the page shows through. */
+    background: transparent;
+    color: #fff;
+    font-family: "SamsungOne", "Segoe UI", Roboto, sans-serif;
+}
+
+#av-player, #html-player {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1920px;
+    height: 1080px;
+}
+
+#html-player { background: #000; display: none; }
+
+.hidden { display: none !important; }
+
+.osd {
+    position: absolute;
+    top: 48px;
+    left: 64px;
+    max-width: 1100px;
+    padding: 20px 28px;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 12px;
+    font-size: 36px;
+    line-height: 1.35;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.osd.right { left: auto; right: 64px; }
+
+.status {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 480px;
+    text-align: center;
+    font-size: 40px;
+    white-space: pre-wrap;
+}
+
+.panel {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 820px;
+    height: 1080px;
+    background: rgba(20, 20, 20, 0.92);
+    display: flex;
+    flex-direction: column;
+}
+
+.panel-head { padding: 36px 40px 12px; }
+.panel-title { font-size: 44px; font-weight: bold; }
+.panel-keys { font-size: 24px; color: #b4b4b4; margin-top: 8px; }
+.panel-status { font-size: 24px; color: #b4b4b4; margin-top: 6px; min-height: 30px; }
+.red { color: #e53935; }
+.green { color: #43a047; }
+
+.rows { position: relative; flex: 1; overflow: hidden; }
+
+.row {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    font-size: 34px;
+    border-radius: 8px;
+}
+
+.row.selected { background: #1e5aa0; }
+.row .num { width: 120px; text-align: right; color: #b4b4b4; padding-right: 24px; flex: none; }
+.row .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row.playing .name { color: #ffd040; }

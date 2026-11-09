@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Samsung Tizen TV app. Built into a .wgt by tizen/build.ps1 and installed
+     on a TV in Developer Mode by tizen/install-on-tv.ps1. -->
+<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets"
+        id="https://github.com/vickdini/iptv" version="0.3.0" viewmodes="maximized">
+    <tizen:application id="vkIPTVtv01.IPTV" package="vkIPTVtv01" required_version="3.0"/>
+    <content src="index.html"/>
+    <name>IPTV</name>
+    <icon src="icon.png"/>
+    <author href="https://github.com/vickdini/iptv">vickdini</author>
+    <license href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0-or-later</license>
+    <feature name="http://tizen.org/feature/screen.size.all"/>
+    <tizen:profile name="tv-samsung"/>
+
+    <!-- Streams and the playlist come from many servers. -->
+    <access origin="*" subdomains="true"/>
+    <tizen:privilege name="http://tizen.org/privilege/internet"/>
+    <!-- Number keys, channel up/down, color keys... -->
+    <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
+
+    <tizen:setting screen-orientation="landscape" context-menu="disable" background-support="disable"
+                   encryption="disable" install-location="auto" hwkey-event="enable"/>
+</widget>

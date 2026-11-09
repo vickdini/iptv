@@ -91,6 +91,13 @@
                 android:contentDescription="@string/favorites_only"
                 android:text="★" />
 
+            <!-- Chromecast button (hidden where casting isn't available). -->
+            <androidx.mediarouter.app.MediaRouteButton
+                android:id="@+id/castButton"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:visibility="gone" />
+
             <TextView
                 android:id="@+id/closePanel"
                 style="@style/PanelButton"

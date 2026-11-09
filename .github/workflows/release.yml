@@ -144,9 +144,54 @@ jobs:
           name: android-apk
           path: dist/*.apk
 
+  samsung-tv:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # TV browsers are old Chromium versions, so the Rust standard library is
+      # rebuilt for "MVP" WebAssembly with nightly Rust (see tizen/build.ps1).
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: wasm32-unknown-unknown
+          components: rust-src
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-bindgen and binaryen
+        shell: pwsh
+        run: |
+          cargo install wasm-bindgen-cli --version 0.2.130 --locked
+          $v = "version_133"
+          $tgz = "binaryen-$v-x86_64-windows.tar.gz"
+          Invoke-WebRequest "https://github.com/WebAssembly/binaryen/releases/download/$v/$tgz" -OutFile $tgz
+          New-Item -ItemType Directory -Force "$env:USERPROFILE\.local" | Out-Null
+          tar -xzf $tgz -C "$env:USERPROFILE\.local"
+
+      - name: Build the Samsung TV app
+        shell: pwsh
+        run: ./tizen/build.ps1
+
+      - name: Package for download
+        shell: pwsh
+        run: |
+          $v = "${{ needs.version.outputs.version }}"
+          $dir = "dist\IPTV-Samsung-TV-$v"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item target\tizen\app "$dir\app" -Recurse
+          Copy-Item tizen\install-on-tv.ps1 $dir
+          Copy-Item LICENSE "$dir\LICENSE.txt"
+          Compress-Archive -Path $dir -DestinationPath "dist\IPTV-Samsung-TV-$v.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: samsung-tv
+          path: dist/*.zip
+
   publish:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [version, windows-installer, android-apk]
+    needs: [version, windows-installer, android-apk, samsung-tv]
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the release and upload files

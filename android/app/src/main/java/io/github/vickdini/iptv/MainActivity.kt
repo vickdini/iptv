@@ -26,6 +26,13 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+import androidx.media3.cast.CastPlayer
+import androidx.media3.cast.SessionAvailabilityListener
+import androidx.media3.common.MediaMetadata
+import androidx.mediarouter.app.MediaRouteButton
+import android.content.pm.PackageManager
+import com.google.android.gms.cast.framework.CastButtonFactory
+import com.google.android.gms.cast.framework.CastContext
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.json.JSONArray
@@ -65,6 +72,9 @@ class MainActivity : AppCompatActivity() {
     private var currentSeq = 0
     private var triedHls = false
     private var digitsPending = false
+    /** Chromecast playback; null where Google Play services are missing (Fire TV). */
+    private var castPlayer: CastPlayer? = null
+    private val casting get() = castPlayer?.isCastSessionAvailable == true
     private var names: Array<String> = emptyArray()
     private var refreshPending = false
     private var lastRefresh = 0L
@@ -129,6 +139,7 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        setupCast()
         setupGestures()
         Core.init(cacheDir.absolutePath, filesDir.absolutePath)
         load()
@@ -196,6 +207,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun startStream(e: JSONObject, forceHls: Boolean) {
         val url = e.getString("url")
+        castPlayer?.takeIf { casting }?.let { cast ->
+            val item = MediaItem.Builder().setUri(url)
+                .setMimeType(if (forceHls || url.contains(".m3u8", ignoreCase = true)) MimeTypes.APPLICATION_M3U8 else null)
+                .setMediaMetadata(MediaMetadata.Builder().setTitle("${e.getInt("number")}  ${e.getString("name")}").build())
+                .build()
+            cast.setMediaItem(item)
+            cast.prepare()
+            cast.playWhenReady = true
+            return
+        }
         val http = DefaultHttpDataSource.Factory()
             .setUserAgent(e.getString("userAgent"))
             .setAllowCrossProtocolRedirects(true)
@@ -345,8 +366,11 @@ class MainActivity : AppCompatActivity() {
         }
         val panelOpen = panel.visibility == View.VISIBLE
         when (code) {
-            KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> tvAction("up")
-            KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> tvAction("down")
+            KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP,
+            KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> tvAction("up")
+            KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN,
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS, KeyEvent.KEYCODE_MEDIA_REWIND -> tvAction("down")
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> if (panelOpen) hidePanel() else showPanel()
             KeyEvent.KEYCODE_DPAD_LEFT -> if (panelOpen) panelAction("group-prev") else tvAction("group-prev")
             KeyEvent.KEYCODE_DPAD_RIGHT -> if (panelOpen) panelAction("group-next") else tvAction("group-next")
             KeyEvent.KEYCODE_LAST_CHANNEL, KeyEvent.KEYCODE_DEL -> tvAction("prev")
@@ -368,12 +392,56 @@ class MainActivity : AppCompatActivity() {
         return true
     }
 
+    // --- Chromecast -----------------------------------------------------------------
+
+    /**
+     * Offers casting on phones and tablets with Google Play services. TV
+     * devices are cast targets themselves, and Fire TV has no Play services,
+     * so the Cast button stays hidden there.
+     */
+    private fun setupCast() {
+        val button = findViewById<MediaRouteButton>(R.id.castButton)
+        if (packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)) return
+        val context = try {
+            @Suppress("DEPRECATION")
+            CastContext.getSharedInstance(this)
+        } catch (e: Exception) {
+            Log.d(TAG, "casting unavailable: ${e.message}")
+            return
+        }
+        CastButtonFactory.setUpMediaRouteButton(applicationContext, button)
+        button.visibility = View.VISIBLE
+        val cast = CastPlayer(context)
+        castPlayer = cast
+        cast.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                // Not castable (e.g. the server blocks cross-origin playback): skip it.
+                if (casting && currentTune != null) perform(Core.playbackFailed(currentSeq))
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                if (casting && state == Player.STATE_READY) Core.playbackStarted(currentSeq)
+            }
+        })
+        cast.setSessionAvailabilityListener(object : SessionAvailabilityListener {
+            override fun onCastSessionAvailable() {
+                player.stop()
+                currentTune?.let { startStream(it, forceHls = triedHls) }
+                showOsd(getString(R.string.casting), 3000)
+            }
+
+            override fun onCastSessionUnavailable() {
+                currentTune?.let { startStream(it, forceHls = triedHls) }
+            }
+        })
+    }
+
     // --- lifecycle ----------------------------------------------------------------
 
     override fun onStart() {
         super.onStart()
         if (loaded) {
-            currentTune?.let { startStream(it, forceHls = triedHls) }
+            if (!casting) currentTune?.let { startStream(it, forceHls = triedHls) }
             handler.removeCallbacks(pollTask)
             handler.post(pollTask)
         }
@@ -381,7 +449,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        player.stop()
+        player.stop() // a Chromecast keeps playing while the phone is locked
         handler.removeCallbacks(pollTask)
         if (loaded) Core.save()
     }
@@ -389,6 +457,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         player.release()
+        castPlayer?.release()
         io.shutdown()
     }
 

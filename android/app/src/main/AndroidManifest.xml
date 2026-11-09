@@ -17,6 +17,11 @@
         android:theme="@style/Theme.IPTV"
         android:usesCleartextTraffic="true">
 
+        <!-- Chromecast: which receiver app to cast to (CastOptionsProvider). -->
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="io.github.vickdini.iptv.CastOptionsProvider" />
+
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode"

@@ -8,8 +8,18 @@ By default the app uses the public [iptv-org](https://github.com/iptv-org/iptv)
 playlist, `https://iptv-org.github.io/iptv/index.m3u` (about 11,500 channels, of
 which roughly three quarters work at any given time).
 
-Runs on Windows and Android (phones, tablets and Android TV); Linux and macOS
-work from source.
+Runs on Windows, Android (phones, tablets, Android TV, Google TV, Fire TV) and
+Samsung smart TVs, and can cast to Chromecast; Linux and macOS work from
+source.
+
+| Device | How to get it |
+| --- | --- |
+| Windows PC | [installer](#install-windows) |
+| Android phone / tablet | [APK](#android) (can also cast to a Chromecast) |
+| Android TV, Chromecast with Google TV, Google TV Streamer | [APK](#android-tv-google-tv-and-fire-tv) |
+| Amazon Fire TV / Fire TV Stick | [APK](#android-tv-google-tv-and-fire-tv) |
+| Older Chromecast (no remote) | [cast from the Android app](#chromecast) |
+| Samsung smart TV (2019 or newer) | [Developer Mode install](#samsung-tvs) |
 
 > [!IMPORTANT]
 > **Disclaimer.** This project does not host, provide, sell or modify any
@@ -67,6 +77,8 @@ full screen.
 | long-press | Info | channel info |
 | | Left / Right | previous / next group |
 | | 0–9 | go to channel number (OK to confirm) |
+| | Fast-forward / Rewind, Next / Previous | next / previous channel |
+| | Play/Pause, Menu | open / close the channel list |
 | | Bookmark | toggle favorite |
 
 In the channel list: tap (or OK) watches a channel, long-press toggles a
@@ -82,6 +94,77 @@ are installed the same way, over the previous version.
 The APK is built and signed by GitHub Actions from this repository's source.
 Its signing certificate (`CN=IPTV, O=vickdini`) has the SHA-256 fingerprint
 `4A:40:E4:CA:75:E2:C2:5E:0A:BC:77:4B:EE:33:02:34:A3:87:1D:7D:CB:8C:FE:A7:66:A5:7A:C6:DD:34:14:61`.
+
+### Android TV, Google TV and Fire TV
+
+The same APK runs on TV devices: it appears in the TV's app list with its own
+banner and is controlled with the remote. TV stores don't offer it, so it is
+"sideloaded" once:
+
+* **Fire TV / Fire TV Stick:** *Settings → My Fire TV → Developer options →
+  Install unknown apps* → turn on **Downloader** (install the free
+  *Downloader* app from the Amazon store first). In Downloader, enter
+  `https://github.com/vickdini/iptv/releases/latest`, download
+  `IPTV-<version>.apk` and install it.
+* **Chromecast with Google TV / Google TV Streamer / Android TV:** install
+  *Downloader* from the Play Store, allow it under *Settings → Apps →
+  Security & restrictions → Unknown sources*, then download and install the
+  APK the same way. (Or: `adb connect <tv-ip>` then `adb install IPTV-<version>.apk`.)
+
+These remotes usually have no number or channel keys: use Up/Down to zap,
+Fast-forward/Rewind as channel +/−, and OK or Play/Pause for the channel list.
+
+### Chromecast
+
+Older Chromecasts (the plain dongle without a remote) can't install apps;
+cast to them from an Android phone or tablet instead: open the channel list
+and tap the Cast button, then choose the Chromecast. Zapping on the phone
+changes the channel on the TV. Casting uses Google's built-in receiver, which
+plays streams in a web browser on the Chromecast, so channels whose servers
+don't allow that (CORS) or that need a special user agent can't be cast;
+they are skipped automatically.
+
+## Samsung TVs
+
+Samsung TVs (Tizen) can't install apps from a download or a USB stick: only
+from the Samsung store, or from a PC with the TV in **Developer Mode**, signed
+with a free Samsung certificate made for that TV. The app works on Samsung
+TVs from 2019 on.
+
+**One-time setup (on a Windows PC on the same Wi-Fi as the TV):**
+
+1. Install the [Tizen Studio](https://developer.tizen.org/development/tizen-studio/download)
+   command-line tools (`web-cli_Tizen_Studio_*_windows-64.exe`), then in its
+   Package Manager install **Samsung Certificate Extension** and
+   **TV Extensions Tools** (*Extension SDK* tab).
+2. On the TV: open **Apps**, enter **1 2 3 4 5** with the remote (or the
+   on-screen number pad), switch **Developer mode** on, enter the PC's IP
+   address, and restart the TV.
+3. Download `IPTV-Samsung-TV-<version>.zip` from the
+   [latest release](https://github.com/vickdini/iptv/releases/latest) and
+   unzip it.
+4. Run, with your TV's IP address (*Settings → General → Network → Network
+   Status*):
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File install-on-tv.ps1 -TvIp 192.168.1.4
+   ```
+
+   The first time, it explains how to create the Samsung certificate in
+   Tizen's Certificate Manager (sign in with a Samsung account; the TV's ID
+   is filled in automatically while it's connected). Run it again afterwards
+   and it signs and installs IPTV, which then appears in the TV's Apps.
+
+| Remote | Action |
+| --- | --- |
+| Up / Down, CH + / CH − | next / previous channel |
+| 0–9 | go to channel number |
+| OK | channel list (in the list: watch the selected channel) |
+| Left / Right | previous / next group |
+| PRE-CH | previous channel |
+| INFO | channel info |
+| Red / Green / Yellow | favorite / favorites only / help |
+| Back | close the list, or exit |
 
 ## Using it
 
@@ -234,9 +317,10 @@ not on a developer's PC:
    both apps (the Android `versionCode` is derived from it).
 2. Tag and push: `git tag v0.2.0 && git push origin master v0.2.0`.
 3. The workflow runs the tests, builds the Windows installer (with a pinned
-   mpv build checked against its SHA-256) and the signed Android APK, and
-   publishes a GitHub Release with `IPTV-Setup-0.2.0.exe`, `IPTV-0.2.0.apk`
-   and `SHA256SUMS.txt`. It refuses to run if the tag doesn't match
+   mpv build checked against its SHA-256), the signed Android APK and the
+   Samsung TV app, and publishes a GitHub Release with
+   `IPTV-Setup-0.2.0.exe`, `IPTV-0.2.0.apk`, `IPTV-Samsung-TV-0.2.0.zip` and
+   `SHA256SUMS.txt`. It refuses to run if the tag doesn't match
    `Cargo.toml`, and refuses to release an unsigned APK.
 
 *Actions → Release → Run workflow* builds both without publishing them
@@ -257,6 +341,26 @@ repository secrets (*Settings → Secrets and variables → Actions*):
 To sign a release build locally, set `ANDROID_KEYSTORE_FILE` (path to the
 `.jks`), `ANDROID_KEYSTORE_PASSWORD` and `ANDROID_KEY_ALIAS`, then run
 `./gradlew assembleRelease`.
+
+### Building the Samsung TV app
+
+The TV app (`tizen/`) is a web app; the shared Rust core runs in it as
+WebAssembly (`crates/iptv-web`). TV browsers are old Chromium versions
+(2019 models: Chromium 63), so the Rust standard library is rebuilt for the
+original "MVP" WebAssembly features, which needs nightly Rust:
+
+```sh
+rustup toolchain install nightly --component rust-src --target wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.130
+# binaryen (wasm-opt): https://github.com/WebAssembly/binaryen/releases
+powershell -ExecutionPolicy Bypass -File tizen\build.ps1      # -> target\tizen\app
+powershell -ExecutionPolicy Bypass -File tizen\install-on-tv.ps1 -TvIp <tv-ip> -AppDir target\tizen\app
+```
+
+`wasm-opt` validates that only MVP features are used, so a build that older
+TVs couldn't load fails instead of shipping. In a desktop browser the app
+runs too (with an HTML `<video>` player and without channel checks), which is
+handy for testing the interface.
 
 ### Building the Android app
 
@@ -294,7 +398,9 @@ crates/
     storage.rs     config / cache locations, saved state
     gui.rs         Windows GUI integration (console attach, error dialog)
   iptv-android/    JNI bridge: the Rust core as an Android native library
-android/           Android app (Kotlin, Media3/ExoPlayer), Gradle project
+  iptv-web/        WebAssembly bridge: the Rust core for web front-ends
+android/           Android app (Kotlin, Media3/ExoPlayer, Cast), Gradle project
+tizen/             Samsung TV app (HTML/JS + WebAssembly core, AVPlay), install script
 packaging/windows/ installer script (Inno Setup), icon, third-party licenses
 .github/workflows/ release.yml: builds and publishes the installer on tag push
 ```
