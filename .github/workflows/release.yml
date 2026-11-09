@@ -189,6 +189,12 @@ jobs:
           name: samsung-tv
           path: dist/*.zip
 
+      # Update files that installed TVs fetch (published to GitHub Pages).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tv-updates
+          path: target/tizen/web
+
   publish:
     if: startsWith(github.ref, 'refs/tags/')
     needs: [version, windows-installer, android-apk, samsung-tv]
@@ -199,6 +205,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: "{windows-installer,android-apk,samsung-tv}"
           merge-multiple: true
 
       - name: Write checksums
@@ -211,3 +218,35 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
+
+  # Samsung TVs update themselves from https://vickdini.github.io/iptv/tv/
+  # (see tizen/app/js/loader.js). Requires, once: repository Settings ->
+  # Pages -> Build and deployment -> Source: "GitHub Actions".
+  pages:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [publish]
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: tv-updates
+          path: site
+      - name: Add a landing page
+        run: |
+          cat > site/index.html <<'HTML'
+          <!DOCTYPE html><meta charset="utf-8"><title>IPTV</title>
+          <meta http-equiv="refresh" content="0; url=https://github.com/vickdini/iptv">
+          <p>IPTV lives at <a href="https://github.com/vickdini/iptv">github.com/vickdini/iptv</a>.</p>
+          HTML
+          find site -type f | sort
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -52,6 +52,12 @@ object Core {
     /** Merges background check results: `{"changed":bool,"status":String?}`. */
     @JvmStatic external fun poll(): String
 
+    /** Newer release: `{}` if up to date, else `{"version","fileName","url","sha256"}`. Blocking. */
+    @JvmStatic external fun checkUpdate(currentVersion: String): String
+
+    /** Downloads and verifies an update (JSON from [checkUpdate]) to [destPath]. Blocking. */
+    @JvmStatic external fun downloadUpdate(update: String, destPath: String): String
+
     /** Persists the last channel, favorites and check results. */
     @JvmStatic external fun save(): String
 }

@@ -160,6 +160,7 @@ class MainActivity : AppCompatActivity() {
                     perform(Core.start())
                     handler.removeCallbacks(pollTask)
                     handler.post(pollTask)
+                    checkForUpdate()
                 }.onFailure { e ->
                     status.text = getString(R.string.load_failed, e.message ?: "")
                     status.setOnClickListener { load() }
@@ -436,6 +437,41 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    // --- updates --------------------------------------------------------------------
+
+    private var updateNeedsPermission = false
+
+    /** Checks GitHub for a newer version and downloads it in the background. */
+    private fun checkForUpdate() {
+        io.execute {
+            val ready = Updater.check(this) ?: return@execute
+            runOnUiThread { offerUpdate(ready) }
+        }
+    }
+
+    private fun offerUpdate(ready: Updater.Ready) {
+        if (Updater.canInstallSilently(this)) {
+            Log.d(TAG, "update ${ready.version} ready; installing when the app is left")
+            return
+        }
+        showOsd(getString(R.string.update_ready, ready.version), 6000)
+        if (!Updater.ensurePermission(this)) {
+            updateNeedsPermission = true // install after returning from the setting
+            return
+        }
+        handler.postDelayed({ Updater.install(this) }, 3000)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (updateNeedsPermission && Updater.ready != null &&
+            (android.os.Build.VERSION.SDK_INT < 26 || packageManager.canRequestPackageInstalls())
+        ) {
+            updateNeedsPermission = false
+            Updater.install(this)
+        }
+    }
+
     // --- lifecycle ----------------------------------------------------------------
 
     override fun onStart() {
@@ -449,6 +485,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        // Silent updates happen when the user leaves, so nothing is interrupted.
+        if (Updater.ready != null && Updater.canInstallSilently(this)) Updater.install(this)
         player.stop() // a Chromecast keeps playing while the phone is locked
         handler.removeCallbacks(pollTask)
         if (loaded) Core.save()

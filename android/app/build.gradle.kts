@@ -4,7 +4,8 @@ plugins {
 
 // Single source of truth for the version: the workspace Cargo.toml.
 // versionCode = major*10000 + minor*100 + patch (e.g. 0.2.0 -> 200).
-val appVersion: String = Regex("""(?m)^\s*version\s*=\s*"([^"]+)"""")
+// IPTV_VERSION overrides it (e.g. to build an older-looking copy for testing updates).
+val appVersion: String = System.getenv("IPTV_VERSION") ?: Regex("""(?m)^\s*version\s*=\s*"([^"]+)"""")
     .find(rootProject.file("../Cargo.toml").readText())!!.groupValues[1]
 val appVersionCode: Int = appVersion.split(".").map { it.toInt() }.let { (a, b, c) -> a * 10000 + b * 100 + c }
 

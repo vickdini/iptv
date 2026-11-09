@@ -251,6 +251,21 @@ an error, the app hides them:
 The check doesn't play video, so a stream that passes can still fail to play;
 in that case it is skipped as described above.
 
+### Automatic updates
+
+Every app checks for a new release each time it starts, in the background
+(playback isn't delayed), and installs it by itself:
+
+| App | How it updates |
+| --- | --- |
+| Windows | Downloads the new installer, verifies its SHA-256, shows *"Updating IPTV…"*, installs it silently and restarts on the new version (a few seconds). |
+| Android, Google TV, Fire TV | Downloads the new APK and verifies its SHA-256 (Android also checks it is signed with the same key). The first time, Android asks to allow IPTV to install apps and to confirm the update. After that, on Android 12 and later updates install silently when you leave the app; on older versions (and Fire TV) Android shows one *"Update"* confirmation. |
+| Samsung TV | Tizen can't reinstall apps, so the installed app is a small loader that runs the newest app code it has and fetches newer code from GitHub Pages ([`vickdini.github.io/iptv/tv`](https://vickdini.github.io/iptv/tv/version.json)), then restarts into it. Works offline with the last version; a download that fails to start is discarded automatically. |
+
+All of them read the latest release's `SHA256SUMS.txt` to learn the newest
+version. Copies run from source don't update themselves; `--no-update`
+turns it off on the desktop.
+
 ### Where data is stored
 
 | What | Windows | Linux | macOS |
@@ -358,7 +373,15 @@ powershell -ExecutionPolicy Bypass -File tizen\install-on-tv.ps1 -TvIp <tv-ip> -
 ```
 
 `wasm-opt` validates that only MVP features are used, so a build that older
-TVs couldn't load fails instead of shipping. In a desktop browser the app
+TVs couldn't load fails instead of shipping.
+
+The build produces `target\tizen\app` (the installable app: a permanent
+loader, `js/loader.js`, plus the app bundle `js/bundle.js` holding all styles,
+scripts and the WebAssembly core) and `target\tizen\web\tv` (the bundle
+and `version.json`, published to GitHub Pages by the release workflow for
+installed TVs to update from; this needs *Settings → Pages → Source: GitHub
+Actions* enabled once). Opening `index.html?updateBase=<url>` makes the loader
+look for updates elsewhere, for testing. In a desktop browser the app
 runs too (with an HTML `<video>` player and without channel checks), which is
 handy for testing the interface.
 
@@ -376,7 +399,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 Gradle builds the Rust core for arm64, armv7 and x86_64 (emulators)
-automatically before the app. `android/make-icons.py` regenerates the
+automatically before the app. `IPTV_VERSION=0.0.1 ./gradlew assembleRelease`
+builds an older-looking copy, handy for testing the automatic update. `android/make-icons.py` regenerates the
 launcher icons and the Android TV banner.
 
 ## Architecture

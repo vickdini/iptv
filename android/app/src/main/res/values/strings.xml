@@ -8,5 +8,6 @@
     <string name="group_next">Next group</string>
     <string name="favorites_only">Favorites only</string>
     <string name="close">Close</string>
+    <string name="update_ready">IPTV %1$s is available — installing the update…</string>
     <string name="casting">Playing on your TV (Chromecast)</string>
 </resources>

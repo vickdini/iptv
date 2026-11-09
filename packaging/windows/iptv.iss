@@ -45,6 +45,20 @@ Name: "{autodesktop}\IPTV"; Filename: "{app}\iptv.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\iptv.exe"; Description: "{cm:LaunchProgram,IPTV}"; Flags: nowait postinstall skipifsilent
+; Automatic updates: IPTV runs the new installer with /VERYSILENT /RELAUNCH
+; and closes; the installer then starts the updated IPTV again.
+Filename: "{app}\iptv.exe"; Flags: nowait; Check: ShouldRelaunch
+
+[Code]
+function ShouldRelaunch: Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), '/RELAUNCH') = 0 then
+      Result := True;
+end;
 
 [UninstallDelete]
 ; Downloaded playlist cache. Favorites/last channel (in %APPDATA%\iptv) are

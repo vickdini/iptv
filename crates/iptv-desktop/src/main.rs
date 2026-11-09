@@ -5,6 +5,7 @@ mod gui;
 mod mpv;
 mod panel;
 mod storage;
+mod updater;
 
 use std::{path::PathBuf, time::Duration};
 
@@ -65,6 +66,10 @@ struct Args {
     /// Don't check which channels work (show them all).
     #[arg(long)]
     no_check: bool,
+
+    /// Don't check for or install new versions.
+    #[arg(long)]
+    no_update: bool,
 
     /// Initial volume (0-100).
     #[arg(long, value_parser = clap::value_parser!(u8).range(0..=100))]
@@ -215,6 +220,17 @@ async fn run(args: Args) -> Result<()> {
     let mut last_save = Instant::now();
     let mut checks_open = true;
 
+    // Look for a newer version in the background; playback isn't delayed.
+    let (update_tx, mut update_rx) = tokio::sync::oneshot::channel();
+    let mut update_open = !args.no_update && updater::enabled();
+    if update_open {
+        updater::clean_old_downloads();
+        tokio::task::spawn_blocking(move || {
+            let _ = update_tx.send(updater::fetch());
+        });
+    }
+    let mut install_at: Option<(Instant, PathBuf)> = None;
+
     loop {
         let timer = async {
             match app.digit_deadline {
@@ -284,6 +300,32 @@ async fn run(args: Args) -> Result<()> {
             _ = timer => {
                 app.digit_deadline = None;
                 app.run(Action::DigitTimeout).await?;
+            }
+            res = &mut update_rx, if update_open => {
+                update_open = false;
+                match res {
+                    Ok(Ok(Some((update, installer)))) => {
+                        eprintln!("Update {} downloaded; installing", update.version);
+                        let text = format!("Updating IPTV to version {}…\nIt will restart in a few seconds.", update.version);
+                        app.player.show_text(&text, 6000).await?;
+                        install_at = Some((Instant::now() + Duration::from_secs(4), installer));
+                    }
+                    Ok(Ok(None)) => eprintln!("IPTV is up to date ({})", env!("CARGO_PKG_VERSION")),
+                    Ok(Err(e)) => eprintln!("warning: update check failed: {e:#}"),
+                    Err(_) => {}
+                }
+            }
+            _ = async {
+                match &install_at {
+                    Some((when, _)) => tokio::time::sleep_until(*when).await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                let (_, installer) = install_at.take().expect("set");
+                match updater::install(&installer) {
+                    Ok(()) => break, // exit so the installer can replace our files
+                    Err(e) => eprintln!("warning: could not start the update: {e:#}"),
+                }
             }
             _ = tokio::signal::ctrl_c() => break,
         }

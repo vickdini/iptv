@@ -4,5 +4,6 @@
 
 pub mod health;
 pub mod playlist;
+pub mod update;
 
 pub use iptv_core::DEFAULT_USER_AGENT;

@@ -9,6 +9,23 @@ var PLAYLIST_URL = 'https://iptv-org.github.io/iptv/index.m3u';
 var STATE_KEY = 'iptv-state';
 var ROW_H = 60;
 
+/* The screen. Built by the app itself (not index.html) so that updates
+ * delivered by the loader can change it. */
+var UI_HTML = [
+    '<object id="av-player" type="application/avplayer"></object>',
+    '<video id="html-player" autoplay playsinline></video>',
+    '<div id="osd" class="osd hidden"></div>',
+    '<div id="status" class="status">Loading channels…</div>',
+    '<div id="panel" class="panel hidden">',
+    '  <div class="panel-head">',
+    '    <div id="panel-title" class="panel-title"></div>',
+    '    <div class="panel-keys">◀ ▶ group &nbsp; <span class="red">●</span> favorite &nbsp; <span class="green">●</span> favorites only</div>',
+    '    <div id="panel-status" class="panel-status"></div>',
+    '  </div>',
+    '  <div id="rows" class="rows"></div>',
+    '</div>',
+].join('\n');
+
 var HELP = [
     'Up / Down, CH+ / CH−    change channel',
     '0–9                    go to channel number',
@@ -18,6 +35,8 @@ var HELP = [
     'INFO                   channel info',
     'Red                    favorite      Green  favorites only',
     'Back                   close list / exit',
+    '',
+    'IPTV ' + (window.IPTV_VERSION || ''),
 ].join('\n');
 
 var core = null;
@@ -86,8 +105,16 @@ function loadPlaylist() {
         });
 }
 
-/** One-time setup, then load. */
+/** Builds the screen, then one-time setup, then load. */
 function boot() {
+    window.IPTV_BOOTED = true; // tells the loader this version started fine
+    if (window.IPTV_STYLE && !document.getElementById('iptv-style')) {
+        var style = document.createElement('style');
+        style.id = 'iptv-style';
+        style.textContent = window.IPTV_STYLE;
+        document.head.appendChild(style);
+    }
+    if (!document.getElementById('osd')) document.body.innerHTML = UI_HTML;
     player = createPlayer();
     keyOf = setupKeys();
     document.addEventListener('keydown', onKey);
@@ -429,4 +456,11 @@ window.addEventListener('unhandledrejection', function (e) {
     if (!loaded) showStatus('Error: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
 });
 
-window.addEventListener('load', boot);
+// The loader announces a downloaded update before restarting into it.
+window.addEventListener('iptv-update', function (e) {
+    showOsd('IPTV ' + e.detail + ' installed.\nRestarting…', 4000);
+});
+
+// The loader may run this after the page's load event has already fired.
+if (document.readyState === 'complete') boot();
+else window.addEventListener('load', boot);

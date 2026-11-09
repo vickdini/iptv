@@ -97,6 +97,36 @@ export!(Java_io_github_vickdini_iptv_Core_playbackStarted, |_env, seq: jint| {
     })
 });
 
+// checkUpdate(currentVersion): {} if up to date, else
+// {"version","fileName","url","sha256"} for the newer APK. Blocking (network).
+export!(Java_io_github_vickdini_iptv_Core_checkUpdate, |env, current: JString<'l>| {
+    let current = string(env, &current)?.unwrap_or_default();
+    match iptv_net::update::check(iptv_net::update::RELEASES, "IPTV-", ".apk", &current)? {
+        None => Ok("{}".into()),
+        Some(u) => Ok(serde_json::json!({
+            "version": u.version, "fileName": u.file_name, "url": u.url, "sha256": u.sha256,
+        })
+        .to_string()),
+    }
+});
+
+// downloadUpdate(updateJson, destPath): downloads the APK and verifies its
+// SHA-256. Blocking. Throws on failure.
+export!(Java_io_github_vickdini_iptv_Core_downloadUpdate, |env, update: JString<'l>, dest: JString<'l>| {
+    let update = string(env, &update)?.unwrap_or_default();
+    let dest = string(env, &dest)?.unwrap_or_default();
+    let v: serde_json::Value = serde_json::from_str(&update)?;
+    let field = |k: &str| v[k].as_str().unwrap_or_default().to_string();
+    let u = iptv_net::update::Update {
+        version: field("version"),
+        file_name: field("fileName"),
+        url: field("url"),
+        sha256: field("sha256"),
+    };
+    iptv_net::update::download(&u, std::path::Path::new(&dest))?;
+    Ok("{}".into())
+});
+
 // listInfo(): {"title":..., "current":idx, "status":...}
 export!(Java_io_github_vickdini_iptv_Core_listInfo, |_env| app::with(|a| Ok(a.list_info())));
 

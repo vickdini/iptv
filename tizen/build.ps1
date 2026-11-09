@@ -50,21 +50,47 @@ if (-not $wasmOpt) { throw "wasm-opt not found: install binaryen (https://github
 if ($LASTEXITCODE) { throw "wasm-opt failed: the module uses WebAssembly features older TVs lack" }
 
 Write-Host "Assembling the app..." -ForegroundColor Cyan
-if (Test-Path $app) { Remove-Item $app -Recurse -Force }
-Copy-Item "$PSScriptRoot\app" $app -Recurse
-# Keep config.xml's version in step with Cargo.toml.
+$src = "$PSScriptRoot\app"
 $m = Select-String -Path "$root\Cargo.toml" -Pattern '^\s*version\s*=\s*"([^"]+)"' | Select-Object -First 1
 $version = $m.Matches[0].Groups[1].Value
-$config = Get-Content "$app\config.xml" -Raw
-$config = $config -replace 'version="[0-9.]+" viewmodes', "version=""$version"" viewmodes"
-Set-Content "$app\config.xml" $config -Encoding utf8 -NoNewline
-Copy-Item "$gen\iptv_web.js" "$app\js\core.js"
-# The TV loads the app from local files, where fetching a .wasm file isn't
-# reliable, so the module is embedded in a script as base64.
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+
+# The bundle: styles, scripts and the WebAssembly core in one file. It ships
+# inside the TV package and is published to GitHub Pages, where installed
+# TVs fetch newer versions from (see app\js\loader.js).
+$sb = New-Object System.Text.StringBuilder
+$css = [IO.File]::ReadAllText("$src\css\style.css")
+[void]$sb.AppendLine("window.IPTV_STYLE = " + (ConvertTo-Json $css -Compress) + ";")
+# Loading a .wasm file from the TV's local files isn't reliable, so the
+# module is embedded as base64.
 $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("$gen\iptv_web_bg.wasm"))
-Set-Content "$app\js\core_wasm.js" "window.IPTV_WASM_B64 = '$b64';" -Encoding ascii -NoNewline
+[void]$sb.AppendLine("window.IPTV_WASM_B64 = '$b64';")
+[void]$sb.AppendLine([IO.File]::ReadAllText("$gen\iptv_web.js"))
+foreach ($f in 'platform.js', 'checker.js', 'app.js') {
+    [void]$sb.AppendLine([IO.File]::ReadAllText("$src\js\$f"))
+}
+[void]$sb.AppendLine("/*IPTV-BUNDLE-END*/")   # the loader rejects cut-off downloads
+$bundle = $sb.ToString()
+
+# Installable app folder: permanent loader shell + the bundle.
+if (Test-Path $app) { Remove-Item $app -Recurse -Force }
+New-Item -ItemType Directory -Force "$app\js" | Out-Null
+foreach ($f in 'index.html', 'icon.png') { Copy-Item "$src\$f" $app }
+$config = [IO.File]::ReadAllText("$src\config.xml") -replace 'version="[0-9.]+" viewmodes', "version=""$version"" viewmodes"
+[IO.File]::WriteAllText("$app\config.xml", $config, $utf8)
+$loader = [IO.File]::ReadAllText("$src\js\loader.js").Replace('@VERSION@', $version)
+[IO.File]::WriteAllText("$app\js\loader.js", $loader, $utf8)
+[IO.File]::WriteAllText("$app\js\bundle.js", $bundle, $utf8)
 Copy-Item "$root\LICENSE" "$app\LICENSE.txt"
 Write-Host "App folder: $app (version $version)"
+
+# Update files for GitHub Pages (https://vickdini.github.io/iptv/tv/).
+$web = "$out\web\tv"
+if (Test-Path "$out\web") { Remove-Item "$out\web" -Recurse -Force }
+New-Item -ItemType Directory -Force $web | Out-Null
+[IO.File]::WriteAllText("$web\bundle.js", $bundle, $utf8)
+[IO.File]::WriteAllText("$web\version.json", "{""version"": ""$version""}`n", $utf8)
+Write-Host "Update files: $web"
 
 if ($Profile) {
     $tizen = "C:\tizen-studio\tools\ide\bin\tizen.bat"
