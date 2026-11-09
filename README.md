@@ -81,6 +81,9 @@ full screen.
 | | Play/Pause, Menu | open / close the channel list |
 | | Bookmark | toggle favorite |
 
+The channel list has a **Search channels…** box at the top (phone keyboard,
+or the TV's on-screen keyboard: Up from the first channel reaches it).
+
 In the channel list: tap (or OK) watches a channel, long-press toggles a
 favorite, and the ◀ ▶ ★ buttons switch group / favorites only.
 
@@ -164,6 +167,7 @@ TVs from 2019 on.
 | PRE-CH | previous channel |
 | INFO | channel info |
 | Red / Green / Yellow | favorite / favorites only / help |
+| Blue (or Up from the first channel in the list) | search by name with the on-screen keyboard |
 | Back | close the list, or exit |
 
 ## Using it
@@ -177,6 +181,7 @@ TVs from 2019 on.
 | Backspace | previous channel |
 | Left / Right, m | volume, mute |
 | l / Tab / right-click | open / close the channel list |
+| / or Ctrl+F | search channels by name (see below) |
 | g / G | next / previous group (Movies, News, Sports…) |
 | s / S | toggle favorite / zap only through favorites |
 | i | channel info |
@@ -200,6 +205,17 @@ video keeps playing beside it.
 | s | toggle favorite on the selected channel |
 | 0–9 | go to channel number |
 | Esc / l / click on the video | close |
+
+### Searching
+
+Type part of a channel name to see only the matching channels: case and
+accents don't matter ("tele" finds "Télé") and every word must appear, in
+any order ("cnn int" finds "CNN International"). The results work like a
+group: the list shows them and Channel Up/Down zaps through them (the banner
+shows `[Search: …]`). Switching group or favorites ends the search.
+
+On Windows: press **/** or **Ctrl+F**, type, **Enter** to pick from the
+results with the arrows, **Esc** to clear the search. Backspace deletes.
 
 The channel being watched is marked ▶; favorites are marked ★.
 

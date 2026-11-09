@@ -9,6 +9,7 @@
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
+use unicode_normalization::UnicodeNormalization;
 
 use crate::m3u::Channel;
 
@@ -77,6 +78,16 @@ pub enum Filter {
     /// Index into [`Tuner::groups`].
     Group(usize),
     Favorites,
+    /// Channels whose name matches [`Tuner::set_search`].
+    Search,
+}
+
+/// Lower-cases and strips accents, so "Télé" matches "tele".
+pub fn normalize(s: &str) -> String {
+    s.nfd()
+        .filter(|c| !('\u{0300}'..='\u{036f}').contains(c))
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 /// What survives a restart. Channels are identified by URL so favorites
@@ -102,6 +113,11 @@ pub struct Tuner {
     max_digits: usize,
     filter: Filter,
     favorites: HashSet<String>,
+    /// Normalized channel names, for searching.
+    search_names: Vec<String>,
+    /// The search as typed, and its normalized words (all must match).
+    search_text: String,
+    search_words: Vec<String>,
 }
 
 impl Tuner {
@@ -125,6 +141,9 @@ impl Tuner {
             .unwrap_or(state.last_index.min(channels.len() - 1));
 
         Some(Self {
+            search_names: channels.iter().map(|c| normalize(&c.name)).collect(),
+            search_text: String::new(),
+            search_words: Vec::new(),
             max_digits: channels.len().to_string().len(),
             dead: vec![false; channels.len()],
             forward: true,
@@ -313,6 +332,24 @@ impl Tuner {
         !self.digits.is_empty()
     }
 
+    /// Shows only channels whose name contains every word of `text`
+    /// (ignoring case and accents), in the list and when zapping. An empty
+    /// text ends the search. Doesn't change the channel being watched.
+    pub fn set_search(&mut self, text: &str) {
+        self.search_text = text.trim().to_string();
+        self.search_words = normalize(text).split_whitespace().map(str::to_string).collect();
+        if !self.search_words.is_empty() {
+            self.filter = Filter::Search;
+        } else if self.filter == Filter::Search {
+            self.filter = Filter::All;
+        }
+    }
+
+    /// The current search text, if searching.
+    pub fn search_text(&self) -> Option<&str> {
+        (self.filter == Filter::Search).then_some(self.search_text.as_str())
+    }
+
     /// Channel indices Up/Down currently zap through, ascending.
     pub fn view(&self) -> Vec<usize> {
         (0..self.channels.len()).filter(|&i| self.matches(i)).collect()
@@ -340,6 +377,7 @@ impl Tuner {
             Filter::All => true,
             Filter::Group(g) => self.channels[idx].groups.iter().any(|x| *x == self.groups[g]),
             Filter::Favorites => self.favorites.contains(&self.channels[idx].url),
+            Filter::Search => self.search_words.iter().all(|w| self.search_names[idx].contains(w.as_str())),
         }
     }
 
@@ -390,6 +428,7 @@ impl Tuner {
             Filter::All => None,
             Filter::Group(g) => Some(self.groups[g].clone()),
             Filter::Favorites => Some("Favorites".into()),
+            Filter::Search => Some(format!("Search: {}", self.search_text)),
         }
     }
 
@@ -432,7 +471,7 @@ impl Tuner {
             return vec![self.osd("This playlist has no groups")];
         }
         let pos = match self.filter {
-            Filter::All | Filter::Favorites => 0,
+            Filter::All | Filter::Favorites | Filter::Search => 0,
             Filter::Group(g) => g + 1,
         };
         let next = if forward { (pos + 1) % (n + 1) } else { (pos + n) % (n + 1) };
@@ -469,6 +508,7 @@ Up / Down / PgUp / PgDn / wheel   change channel
 Backspace                          previous channel
 Left / Right                       volume      m  mute
 i  info      l / Tab  channel panel (wheel, click, Esc)
+/ or Ctrl+F  search channels by name
 g / G        next / previous group
 s  toggle favorite    S  favorites only
 f  fullscreen         q  quit";
@@ -638,6 +678,47 @@ mod tests {
         let mut t = Tuner::new(chs, &state).unwrap();
         t.set_dead(2, true);
         assert_eq!(tuned(&t.start()), Some(3));
+    }
+
+    #[test]
+    fn search_ignores_case_accents_and_word_order() {
+        let names = ["CNN International", "Télé Bretagne", "CNBC", "Canal+ Sport", "Euronews"];
+        let chs = names
+            .iter()
+            .map(|n| Channel {
+                name: n.to_string(),
+                url: format!("http://{n}"),
+                groups: vec!["News".into()],
+                ..Default::default()
+            })
+            .collect();
+        let mut t = Tuner::new(chs, &SavedState::default()).unwrap();
+        t.set_search("cnn");
+        assert_eq!(t.view(), vec![0]);
+        assert_eq!(t.view_title(), "Search: cnn (1)");
+        t.set_search("  int  CNN ");
+        assert_eq!(t.view(), vec![0]);
+        t.set_search("tele");
+        assert_eq!(t.view(), vec![1]);
+        t.set_search("CN");
+        assert_eq!(t.view(), vec![0, 2]);
+        // Zapping stays inside the results and the channel isn't changed by searching.
+        assert_eq!(t.current(), 0);
+        assert_eq!(tuned(&t.handle(Action::ChannelUp)), Some(2));
+        assert_eq!(tuned(&t.handle(Action::ChannelUp)), Some(0));
+        // Dead channels stay hidden in results.
+        t.set_dead(2, true);
+        assert_eq!(t.view(), vec![0]);
+        t.set_search("nothing like this");
+        assert!(t.view().is_empty());
+        // Clearing returns to all channels.
+        t.set_search("");
+        assert_eq!(t.filter(), Filter::All);
+        assert_eq!(t.search_text(), None);
+        // Switching group ends the search.
+        t.set_search("cnn");
+        t.handle(Action::NextGroup);
+        assert_ne!(t.filter(), Filter::Search);
     }
 
     #[test]

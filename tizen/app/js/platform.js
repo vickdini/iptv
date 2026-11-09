@@ -163,6 +163,7 @@ function setupKeys() {
             case 'ColorF0Red': return { key: 'red' };
             case 'ColorF1Green': return { key: 'green' };
             case 'ColorF2Yellow': return { key: 'yellow' };
+            case 'ColorF3Blue': return { key: 'blue' };
         }
         if (k >= 48 && k <= 57) return { key: 'digit', digit: String(k - 48) };
         if (k >= 96 && k <= 105) return { key: 'digit', digit: String(k - 96) };
@@ -178,6 +179,7 @@ function setupKeys() {
             case 8: return { key: 'prev' };                   // Backspace
             case 73: return { key: 'info' };                  // I
             case 76: return { key: 'list' };                  // L
+            case 191: return { key: 'blue' };                 // "/" = search
             case 83: return { key: 'red' };                   // S
         }
         return null;

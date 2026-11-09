@@ -105,6 +105,29 @@
                 android:text="✕" />
         </LinearLayout>
 
+        <!-- Search by channel name (phone keyboard or the TV's on-screen keyboard). -->
+        <EditText
+            android:id="@+id/search"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/search_bg"
+            android:drawableStart="@android:drawable/ic_menu_search"
+            android:drawablePadding="8dp"
+            android:hint="@string/search_hint"
+            android:imeOptions="actionSearch|flagNoExtractUi"
+            android:importantForAutofill="no"
+            android:inputType="textFilter|textNoSuggestions"
+            android:maxLines="1"
+            android:paddingStart="8dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="6dp"
+            android:textColor="@android:color/white"
+            android:textColorHint="#8C8C8C"
+            android:textSize="17sp" />
+
         <TextView
             android:id="@+id/panelStatus"
             android:layout_width="match_parent"

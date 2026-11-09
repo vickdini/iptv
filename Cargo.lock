@@ -430,7 +430,7 @@ dependencies = [
 
 [[package]]
 name = "iptv-android"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "iptv-core",
@@ -442,14 +442,15 @@ dependencies = [
 
 [[package]]
 name = "iptv-core"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "serde",
+ "unicode-normalization",
 ]
 
 [[package]]
 name = "iptv-desktop"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -465,7 +466,7 @@ dependencies = [
 
 [[package]]
 name = "iptv-net"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "iptv-core",
@@ -478,7 +479,7 @@ dependencies = [
 
 [[package]]
 name = "iptv-web"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "iptv-core",
  "serde_json",
@@ -929,6 +930,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "tinyvec"
+version = "1.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
+
+[[package]]
 name = "tokio"
 version = "1.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1005,6 +1012,15 @@ name = "unicode-ident"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.26"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75cd3fb03d5288b3ba9a1ee103ac7e9cbb59f0b03d64f8ddfcc04dd42758a85d"
+dependencies = [
+ "tinyvec",
+]
 
 [[package]]
 name = "untrusted"

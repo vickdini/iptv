@@ -39,16 +39,9 @@ RIGHT       add volume 5
 ENTER       script-message iptv ok
 KP_ENTER    script-message iptv ok
 BS          script-message iptv prev
-i           script-message iptv info
-l           script-message iptv list
 TAB         script-message iptv list
-g           script-message iptv group-next
-G           script-message iptv group-prev
-s           script-message iptv fav
-S           script-message iptv fav-only
-h           script-message iptv help
-?           script-message iptv help
 F1          script-message iptv help
+Ctrl+f      script-message iptv search
 MBTN_LEFT_DBL script-message iptv dblclick
 ";
 
@@ -276,6 +269,12 @@ fn write_input_conf() -> Result<PathBuf> {
         conf.push_str(&format!("{d}           script-message iptv digit {d}\n"));
         conf.push_str(&format!("KP{d}         script-message iptv digit {d}\n"));
     }
+    // Letters and common symbols all go to the app, which decides: text while
+    // searching, otherwise shortcuts (see main.rs `shortcut`).
+    for c in ('a'..='z').chain('A'..='Z').chain("/?-+.&'!():".chars()) {
+        conf.push_str(&format!("{c}           script-message iptv key {c}\n"));
+    }
+    conf.push_str("SPACE       script-message iptv key space\n");
     std::fs::write(&path, conf)?;
     Ok(path)
 }

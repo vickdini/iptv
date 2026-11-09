@@ -65,18 +65,29 @@ impl Panel {
     }
 
     /// `status` (e.g. "checking channels 40%") replaces the footer hints.
-    pub fn render(&self, tuner: &Tuner, status: Option<&str>) -> String {
+    /// `typing`: the search being typed (shown with a cursor), if any.
+    pub fn render(&self, tuner: &Tuner, status: Option<&str>, typing: Option<&str>) -> String {
         let mut ev: Vec<String> = Vec::new();
         let b = &self.browser;
 
         ev.push(rect(0.0, 0.0, PANEL_W, H, C_BG, 0x30));
-        ev.push(text(PAD, 24.0, 26, C_TEXT, true, &tuner.view_title(), PANEL_W - PAD));
-        ev.push(text(PAD, 48.0, 15, C_DIM, false,
-            "g / G  change group      S  favorites only      digits  jump", PANEL_W - PAD));
+        let (title, hint) = match typing {
+            Some(q) => (
+                format!("Search: {q}_"),
+                "type a channel name      Enter  done      Esc  clear",
+            ),
+            None => (
+                tuner.view_title(),
+                "/  search      g / G  group      S  favorites only      digits  jump",
+            ),
+        };
+        ev.push(text(PAD, 24.0, 26, C_TEXT, true, &title, PANEL_W - PAD));
+        ev.push(text(PAD, 48.0, 15, C_DIM, false, hint, PANEL_W - PAD));
         ev.push(rect(PAD, HEADER_H - 4.0, PANEL_W - PAD, HEADER_H - 3.0, C_DIM, 0x90));
 
         if b.is_empty() {
-            ev.push(text(PAD, HEADER_H + ROW_H, 20, C_DIM, false, "No channels here", PANEL_W));
+            let empty = if tuner.search_text().is_some() { "No channels found" } else { "No channels here" };
+            ev.push(text(PAD, HEADER_H + ROW_H, 20, C_DIM, false, empty, PANEL_W));
         }
 
         let name_x = PAD + NUM_W + 12.0;

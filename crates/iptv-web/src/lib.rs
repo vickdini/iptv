@@ -121,6 +121,19 @@ impl WebCore {
         cur as i32
     }
 
+    /// Shows only channels whose name matches `text` (ignoring case and
+    /// accents; every word must match). Empty text: all channels again.
+    #[wasm_bindgen(js_name = setSearch)]
+    pub fn set_search(&mut self, text: &str) {
+        self.tuner.set_search(text);
+    }
+
+    /// The search in effect, or empty.
+    #[wasm_bindgen(js_name = searchText)]
+    pub fn search_text(&self) -> String {
+        self.tuner.search_text().unwrap_or_default().to_string()
+    }
+
     /// Channel list header: `{"title","current"}`.
     #[wasm_bindgen(js_name = listInfo)]
     pub fn list_info(&self) -> String {

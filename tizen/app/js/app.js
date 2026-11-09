@@ -19,7 +19,8 @@ var UI_HTML = [
     '<div id="panel" class="panel hidden">',
     '  <div class="panel-head">',
     '    <div id="panel-title" class="panel-title"></div>',
-    '    <div class="panel-keys">◀ ▶ group &nbsp; <span class="red">●</span> favorite &nbsp; <span class="green">●</span> favorites only</div>',
+    '    <div class="panel-keys">◀ ▶ group &nbsp; <span class="red">●</span> favorite &nbsp; <span class="green">●</span> favorites only &nbsp; <span class="blue">●</span> search</div>',
+    '    <input id="search" class="search" type="text" placeholder="Search channels…" autocomplete="off" spellcheck="false">',
     '    <div id="panel-status" class="panel-status"></div>',
     '  </div>',
     '  <div id="rows" class="rows"></div>',
@@ -34,6 +35,7 @@ var HELP = [
     'PRE-CH                 previous channel',
     'INFO                   channel info',
     'Red                    favorite      Green  favorites only',
+    'Blue                   search channels by name',
     'Back                   close list / exit',
     '',
     'IPTV ' + (window.IPTV_VERSION || ''),
@@ -119,6 +121,11 @@ function boot() {
     keyOf = setupKeys();
     document.addEventListener('keydown', onKey);
     $('rows').addEventListener('click', onRowClick);
+    $('search').addEventListener('input', function () {
+        if (!loaded) return;
+        core.setSearch($('search').value);
+        refreshList(false, true);
+    });
     document.addEventListener('visibilitychange', onVisibility);
     try {
         initCore();
@@ -302,10 +309,27 @@ function openPanel() {
     $('osd').classList.add('hidden');
     panel.rows = Math.max(1, Math.floor($('rows').clientHeight / ROW_H));
     buildRows();
+    $('search').value = core.searchText();
     refreshList(false);
 }
 
+/** Puts the cursor in the search box; the TV shows its on-screen keyboard. */
+function startSearch() {
+    if (!panel.open) openPanel();
+    $('search').focus();
+}
+
+function endSearchTyping() {
+    $('search').blur();
+}
+
+/** Group / favorites switching ends the search (the core does the same). */
+function clearSearchBox() {
+    $('search').value = '';
+}
+
 function closePanel() {
+    endSearchTyping();
     panel.open = false;
     $('panel').classList.add('hidden');
 }
@@ -326,8 +350,11 @@ function buildRows() {
     }
 }
 
-/** Reloads the list; `keep` keeps the selection on the same screen row. */
-function refreshList(keep) {
+/**
+ * Reloads the list; `keep` keeps the selection on the same screen row,
+ * `toFirst` selects the first row (new search results).
+ */
+function refreshList(keep, toFirst) {
     var info = JSON.parse(core.listInfo());
     var oldSelIdx = panel.items.length ? panel.items[panel.sel] : -1;
     var oldRow = panel.sel - panel.scroll;
@@ -336,7 +363,10 @@ function refreshList(keep) {
     panel.current = info.current;
     $('panel-title').textContent = info.title;
     $('panel-status').textContent = checkStatus();
-    if (keep && oldSelIdx >= 0) {
+    if (toFirst) {
+        panel.sel = 0;
+        panel.scroll = 0;
+    } else if (keep && oldSelIdx >= 0) {
         panel.sel = lowerBound(panel.items, oldSelIdx);
         panel.scroll = Math.min(Math.max(0, panel.sel - oldRow), maxScroll());
     } else {
@@ -386,6 +416,17 @@ function onRowClick(ev) {
 /* ------------------------------------------------------------------ input */
 
 function onKey(ev) {
+    // While the search box has the cursor, keys are typing (the on-screen
+    // keyboard). Only leaving it is handled here.
+    if (document.activeElement === $('search')) {
+        var c = ev.keyCode;
+        // Down / OK / Back, and the keyboard's Done (65376) / Cancel (65385).
+        if (c === 40 || c === 13 || c === 10009 || c === 27 || c === 65376 || c === 65385) {
+            ev.preventDefault();
+            endSearchTyping();
+        }
+        return;
+    }
     var k = keyOf(ev);
     if (!k) return;
     ev.preventDefault();
@@ -401,12 +442,13 @@ function onKey(ev) {
 
     if (panel.open) {
         switch (k.key) {
-            case 'up': move(-1); break;
+            case 'up': if (panel.sel === 0) startSearch(); else move(-1); break;
             case 'down': move(1); break;
+            case 'blue': startSearch(); break;
             case 'chup': move(-panel.rows); break;
             case 'chdown': move(panel.rows); break;
-            case 'left': tvAction('group-prev'); refreshList(false); break;
-            case 'right': tvAction('group-next'); refreshList(false); break;
+            case 'left': clearSearchBox(); tvAction('group-prev'); refreshList(false); break;
+            case 'right': clearSearchBox(); tvAction('group-next'); refreshList(false); break;
             case 'enter':
                 if (digitsPending) tvAction('ok');
                 else if (selectedChannel() >= 0) perform(core.tuneTo(selectedChannel()));
@@ -414,7 +456,7 @@ function onKey(ev) {
             case 'red':
                 if (selectedChannel() >= 0) { perform(core.toggleFavorite(selectedChannel())); refreshList(true); }
                 break;
-            case 'green': tvAction('fav-only'); refreshList(false); break;
+            case 'green': clearSearchBox(); tvAction('fav-only'); refreshList(false); break;
             case 'info': tvAction('info'); break;
             case 'prev': tvAction('prev'); break;
             case 'back': case 'list': closePanel(); break;
@@ -428,6 +470,7 @@ function onKey(ev) {
         case 'left': tvAction('group-prev'); break;
         case 'right': tvAction('group-next'); break;
         case 'enter': if (digitsPending) tvAction('ok'); else openPanel(); break;
+        case 'blue': startSearch(); break;
         case 'list': openPanel(); break;
         case 'info': tvAction('info'); break;
         case 'prev': tvAction('prev'); break;

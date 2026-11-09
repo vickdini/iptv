@@ -11,6 +11,10 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
+import androidx.core.widget.doAfterTextChanged
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
@@ -63,6 +67,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var panelTitle: TextView
     private lateinit var panelStatus: TextView
     private lateinit var list: RecyclerView
+    private lateinit var search: EditText
+    /** Set while changing the search box from code (not typing). */
+    private var settingSearch = false
     private lateinit var adapter: ChannelAdapter
 
     private val handler = Handler(Looper.getMainLooper())
@@ -103,6 +110,19 @@ class MainActivity : AppCompatActivity() {
         panelTitle = findViewById(R.id.panelTitle)
         panelStatus = findViewById(R.id.panelStatus)
         list = findViewById(R.id.list)
+        search = findViewById(R.id.search)
+        search.doAfterTextChanged { text ->
+            if (settingSearch || !loaded) return@doAfterTextChanged
+            Core.setSearch(text?.toString() ?: "")
+            refreshList(keepPosition = false, toFirst = true)
+        }
+        search.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
+                hideKeyboard()
+                list.post { (list.layoutManager as LinearLayoutManager).findViewByPosition(0)?.requestFocus() }
+                true
+            } else false
+        }
 
         adapter = ChannelAdapter(
             onClick = { idx -> perform(Core.tuneTo(idx)) },
@@ -151,16 +171,23 @@ class MainActivity : AppCompatActivity() {
         status.setOnClickListener(null)
         io.execute {
             // Names are fetched once here, off the main thread, for the channel list.
-            val result = runCatching { Core.loadPlaylist(PLAYLIST_URL).also { names = Core.names() } }
+            // If Android recreated this screen (keyboard, rotation, font size...), the
+            // core is still loaded in this process: resume instead of reloading.
+            val resuming = Core.isLoaded() == "true"
+            val result = runCatching {
+                if (!resuming) Core.loadPlaylist(PLAYLIST_URL)
+                names = Core.names()
+            }
             runOnUiThread {
                 result.onSuccess {
                     adapter.names = names
                     status.visibility = View.GONE
                     loaded = true
+                    setSearchText(Core.searchText())
                     perform(Core.start())
                     handler.removeCallbacks(pollTask)
                     handler.post(pollTask)
-                    checkForUpdate()
+                    if (!resuming) checkForUpdate()
                 }.onFailure { e ->
                     status.text = getString(R.string.load_failed, e.message ?: "")
                     status.setOnClickListener { load() }
@@ -260,12 +287,34 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun panelAction(name: String) {
+        // Switching group / favorites ends the search (the core does the same).
+        if (search.text.isNotEmpty()) setSearchText("")
         tvAction(name)
         refreshList(keepPosition = false)
     }
 
-    /** Reloads the list; keeps the scroll position when channels just appeared/disappeared. */
-    private fun refreshList(keepPosition: Boolean) {
+    private fun setSearchText(text: String) {
+        settingSearch = true
+        search.setText(text)
+        settingSearch = false
+    }
+
+    private fun hideKeyboard() {
+        getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(search.windowToken, 0)
+    }
+
+    /** Opens the channel list with the cursor in the search box. */
+    private fun startSearch() {
+        if (panel.visibility != View.VISIBLE) showPanel()
+        search.requestFocus()
+        getSystemService(InputMethodManager::class.java)?.showSoftInput(search, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    /**
+     * Reloads the list; keeps the scroll position when channels just
+     * appeared/disappeared, or jumps to the first row for new search results.
+     */
+    private fun refreshList(keepPosition: Boolean, toFirst: Boolean = false) {
         val t0 = System.nanoTime()
         val info = JSONObject(Core.listInfo())
         panelTitle.text = info.getString("title")
@@ -285,7 +334,9 @@ class MainActivity : AppCompatActivity() {
         lastRefresh = SystemClock.uptimeMillis()
         refreshPending = false
         Log.d(TAG, "list refresh: ${adapter.itemCount} rows in ${(System.nanoTime() - t0) / 1_000_000} ms")
-        if (anchorIdx >= 0) {
+        if (toFirst) {
+            lm.scrollToPositionWithOffset(0, 0)
+        } else if (anchorIdx >= 0) {
             lm.scrollToPositionWithOffset(adapter.positionOf(anchorIdx), anchorTop)
         } else {
             // After layout, so the list knows its height: current channel a third down.
@@ -350,6 +401,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // While typing a search, keys are text, not remote-control shortcuts.
+        if (search.hasFocus() && event.keyCode != KeyEvent.KEYCODE_BACK) return super.dispatchKeyEvent(event)
         if (event.action == KeyEvent.ACTION_DOWN && loaded && handleKey(event.keyCode)) return true
         return super.dispatchKeyEvent(event)
     }
@@ -380,6 +433,7 @@ class MainActivity : AppCompatActivity() {
             KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_GUIDE, KeyEvent.KEYCODE_L ->
                 if (panelOpen) hidePanel() else showPanel()
             KeyEvent.KEYCODE_ESCAPE -> if (panelOpen) hidePanel() else return false
+            KeyEvent.KEYCODE_SEARCH, KeyEvent.KEYCODE_SLASH -> startSearch()
             // With the list open, Up/Down/OK move through it and pick a channel.
             KeyEvent.KEYCODE_DPAD_UP -> if (panelOpen) return false else tvAction("up")
             KeyEvent.KEYCODE_DPAD_DOWN -> if (panelOpen) return false else tvAction("down")

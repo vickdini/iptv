@@ -127,6 +127,21 @@ export!(Java_io_github_vickdini_iptv_Core_downloadUpdate, |env, update: JString<
     Ok("{}".into())
 });
 
+// setSearch(text): "{}" -- show only channels whose name matches (empty: all).
+export!(Java_io_github_vickdini_iptv_Core_setSearch, |env, text: JString<'l>| {
+    let text = string(env, &text)?.unwrap_or_default();
+    app::with(|a| {
+        a.set_search(&text);
+        Ok("{}".into())
+    })
+});
+
+// isLoaded(): "true"/"false" -- a playlist is already loaded in this process.
+export!(Java_io_github_vickdini_iptv_Core_isLoaded, |_env| Ok(app::is_loaded().to_string()));
+
+// searchText(): the search in effect, or "".
+export!(Java_io_github_vickdini_iptv_Core_searchText, |_env| app::with(|a| Ok(a.search_text())));
+
 // listInfo(): {"title":..., "current":idx, "status":...}
 export!(Java_io_github_vickdini_iptv_Core_listInfo, |_env| app::with(|a| Ok(a.list_info())));
 

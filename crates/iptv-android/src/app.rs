@@ -49,6 +49,12 @@ pub fn load_playlist(url: &str) -> Result<String> {
     Ok(json!({ "channels": n, "freshness": format!("{freshness:?}") }).to_string())
 }
 
+/// Whether a playlist is loaded (the app survives the Android activity
+/// being recreated, e.g. on configuration changes).
+pub fn is_loaded() -> bool {
+    APP.lock().map(|a| a.is_some()).unwrap_or(false)
+}
+
 /// Runs `f` with the loaded app.
 pub fn with<T>(f: impl FnOnce(&mut App) -> Result<T>) -> Result<T> {
     let mut guard = APP.lock().unwrap_or_else(|e| e.into_inner());
@@ -197,6 +203,15 @@ impl App {
             self.last_save = Instant::now();
         }
         json!({ "changed": changed, "status": self.status() }).to_string()
+    }
+
+    /// Shows only channels matching `text` (empty: all channels).
+    pub fn set_search(&mut self, text: &str) {
+        self.tuner.set_search(text);
+    }
+
+    pub fn search_text(&self) -> String {
+        self.tuner.search_text().unwrap_or_default().to_string()
     }
 
     /// Small header for the channel list: `{"title","status","current"}`.

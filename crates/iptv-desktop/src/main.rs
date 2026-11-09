@@ -212,6 +212,8 @@ async fn run(args: Args) -> Result<()> {
         view_dirty: false,
         tune_seq: 0,
         current_loaded: false,
+        typing: false,
+        query: String::new(),
     };
     let fx = app.tuner.start();
     app.apply(fx).await?;
@@ -359,6 +361,28 @@ struct App {
     tune_seq: u64,
     /// The current stream started playing.
     current_loaded: bool,
+    /// Typing a search in the channel list, and the text so far.
+    typing: bool,
+    query: String,
+}
+
+/// What a letter key does when not typing a search.
+fn shortcut(c: &str) -> Option<&'static str> {
+    Some(match c {
+        "i" => "info",
+        "l" => "list",
+        "g" => "group-next",
+        "G" => "group-prev",
+        "s" => "fav",
+        "S" => "fav-only",
+        "h" | "?" => "help",
+        "/" => "search",
+        "f" => "fullscreen",
+        "m" => "mute",
+        "p" | "space" => "pause",
+        "q" | "Q" => "quit",
+        _ => return None,
+    })
 }
 
 impl App {
@@ -418,6 +442,25 @@ impl App {
     async fn on_key(&mut self, name: &str, arg: Option<&str>) -> Result<()> {
         if self.debug {
             eprintln!("key: {name} {}", arg.unwrap_or_default());
+        }
+        if self.typing {
+            return self.search_key(name, arg).await;
+        }
+        // Letter keys are shortcuts unless typing a search.
+        let (name, arg) = match (name, arg) {
+            ("key", Some(c)) => match shortcut(c) {
+                Some(n) => (n, None),
+                None => return Ok(()),
+            },
+            other => other,
+        };
+        match name {
+            "search" => return self.start_search().await,
+            "fullscreen" => return self.player.command(json!(["cycle", "fullscreen"])).await,
+            "mute" => return self.player.command(json!(["cycle", "mute"])).await,
+            "pause" => return self.player.command(json!(["cycle", "pause"])).await,
+            "quit" => return self.player.command(json!(["quit"])).await,
+            _ => {}
         }
         if self.panel.is_some() {
             self.panel_key(name, arg).await
@@ -486,6 +529,52 @@ impl App {
         self.redraw().await
     }
 
+    /// Opens the channel list (if needed) and starts typing a search,
+    /// continuing the current one if any.
+    async fn start_search(&mut self) -> Result<()> {
+        if self.panel.is_none() {
+            self.open_panel().await?;
+        }
+        self.query = self.tuner.search_text().unwrap_or_default().to_string();
+        self.typing = true;
+        self.redraw().await
+    }
+
+    /// Keys while typing a search.
+    async fn search_key(&mut self, name: &str, arg: Option<&str>) -> Result<()> {
+        match (name, arg) {
+            ("key", Some("space")) => self.query.push(' '),
+            ("key", Some(c)) | ("digit", Some(c)) => self.query.push_str(c),
+            ("prev", _) => {
+                self.query.pop();
+            }
+            ("ok", _) => {
+                self.typing = false; // keep the results; arrows / Enter pick a channel
+                return self.redraw().await;
+            }
+            ("back", _) => {
+                self.typing = false;
+                self.query.clear();
+            }
+            ("list", _) => {
+                self.typing = false;
+                return self.close_panel().await;
+            }
+            // Moving in the list finishes typing.
+            ("up" | "down" | "page-up" | "page-down" | "home" | "end" | "wheel-up" | "wheel-down" | "click", _) => {
+                self.typing = false;
+                return self.panel_key(name, arg).await;
+            }
+            _ => return Ok(()),
+        }
+        self.tuner.set_search(&self.query);
+        let view = self.tuner.view();
+        if let Some(panel) = self.panel.as_mut() {
+            panel.browser.set_items(view, 0); // select the first match
+        }
+        self.redraw().await
+    }
+
     async fn click(&mut self) -> Result<()> {
         let Some((x, y)) = self.mouse_canvas() else { return Ok(()) };
         let Some(panel) = self.panel.as_mut() else { return Ok(()) };
@@ -538,6 +627,7 @@ impl App {
 
     async fn close_panel(&mut self) -> Result<()> {
         self.panel = None;
+        self.typing = false;
         self.player.remove_overlay(PANEL_OVERLAY_ID).await?;
         self.player.set_property("osd-align-x", json!("left")).await?;
         self.player.set_property("cursor-autohide", json!(1000)).await
@@ -545,7 +635,8 @@ impl App {
 
     async fn redraw(&mut self) -> Result<()> {
         if let Some(panel) = &self.panel {
-            let ass = panel.render(&self.tuner, self.check_status().as_deref());
+            let typing = self.typing.then_some(self.query.as_str());
+            let ass = panel.render(&self.tuner, self.check_status().as_deref(), typing);
             self.player.overlay(PANEL_OVERLAY_ID, &ass, panel::H).await?;
         }
         Ok(())

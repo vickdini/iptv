@@ -37,6 +37,15 @@ object Core {
     /** Tune [seq] is playing: remember the channel works. */
     @JvmStatic external fun playbackStarted(seq: Int): String
 
+    /** "true" if a playlist is already loaded in this process (activity recreated). */
+    @JvmStatic external fun isLoaded(): String
+
+    /** The search in effect, or "". */
+    @JvmStatic external fun searchText(): String
+
+    /** Shows only channels whose name matches [text] (empty: all channels). */
+    @JvmStatic external fun setSearch(text: String): String
+
     /** Channel list header: `{"title","status","current"}`. */
     @JvmStatic external fun listInfo(): String
 
