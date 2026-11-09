@@ -1,0 +1,62 @@
+# Publishes the Samsung TV update files to GitHub Pages
+# (https://vickdini.github.io/iptv/tv/), where installed TVs fetch new
+# versions from (see tizen/app/js/loader.js).
+#
+# Runs from the default branch after each Release build (the github-pages
+# environment only accepts deployments from it, not from version tags) and
+# takes the app bundle from the latest release's Samsung TV download.
+
+name: TV updates (GitHub Pages)
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  push:
+    branches: [master]
+    paths: [.github/workflows/pages.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Take the app bundle from the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          version="${tag#v}"
+          echo "Latest release: $tag"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "IPTV-Samsung-TV-*.zip" --dir dl
+          unzip -q dl/*.zip -d dl
+          mkdir -p site/tv
+          cp "dl/IPTV-Samsung-TV-$version/app/js/bundle.js" site/tv/bundle.js
+          grep -q 'IPTV-BUNDLE-END' site/tv/bundle.js   # complete bundle only
+          printf '{"version": "%s"}\n' "$version" > site/tv/version.json
+          cat > site/index.html <<'HTML'
+          <!DOCTYPE html><meta charset="utf-8"><title>IPTV</title>
+          <meta http-equiv="refresh" content="0; url=https://github.com/vickdini/iptv">
+          <p>IPTV lives at <a href="https://github.com/vickdini/iptv">github.com/vickdini/iptv</a>.</p>
+          HTML
+          find site -type f -exec ls -la {} \;
+          cat site/tv/version.json
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
