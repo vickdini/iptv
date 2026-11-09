@@ -3,6 +3,19 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Single source of truth for the version: the workspace Cargo.toml.
+// versionCode = major*10000 + minor*100 + patch (e.g. 0.2.0 -> 200).
+val appVersion: String = Regex("""(?m)^\s*version\s*=\s*"([^"]+)"""")
+    .find(rootProject.file("../Cargo.toml").readText())!!.groupValues[1]
+val appVersionCode: Int = appVersion.split(".").map { it.toInt() }.let { (a, b, c) -> a * 10000 + b * 100 + c }
+
+// Release signing comes from the environment (GitHub Actions secrets), never
+// from files in the repository. Without it, release builds are unsigned.
+val signingStoreFile: String? = System.getenv("ANDROID_KEYSTORE_FILE")
+val signingPassword: String? = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+val signingAlias: String? = System.getenv("ANDROID_KEY_ALIAS")
+val canSign = signingStoreFile != null && signingPassword != null && signingAlias != null
+
 android {
     namespace = "io.github.vickdini.iptv"
     compileSdk = 35
@@ -12,14 +25,26 @@ android {
         applicationId = "io.github.vickdini.iptv"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersion
+    }
+
+    signingConfigs {
+        if (canSign) {
+            create("release") {
+                storeFile = file(signingStoreFile!!)
+                storePassword = signingPassword
+                keyAlias = signingAlias
+                keyPassword = signingPassword
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (canSign) signingConfig = signingConfigs.getByName("release")
         }
     }
 

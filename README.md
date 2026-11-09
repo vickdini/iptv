@@ -72,8 +72,16 @@ full screen.
 In the channel list: tap (or OK) watches a channel, long-press toggles a
 favorite, and the ◀ ▶ ★ buttons switch group / favorites only.
 
-There is no published Android download yet; build the APK from source (see
-[Building the Android app](#building-the-android-app)).
+**[Download the latest APK](https://github.com/vickdini/iptv/releases/latest)**
+(`IPTV-<version>.apk` under *Assets*) on the phone or TV and open it. Android
+asks once to allow installing apps from your browser or file manager; allow
+it, then tap **Install**. The app isn't on Google Play, so Play Protect may
+show a warning for an unknown developer; choose **Install anyway**. Updates
+are installed the same way, over the previous version.
+
+The APK is built and signed by GitHub Actions from this repository's source.
+Its signing certificate (`CN=IPTV, O=vickdini`) has the SHA-256 fingerprint
+`4A:40:E4:CA:75:E2:C2:5E:0A:BC:77:4B:EE:33:02:34:A3:87:1D:7D:CB:8C:FE:A7:66:A5:7A:C6:DD:34:14:61`.
 
 ## Using it
 
@@ -222,16 +230,33 @@ affect the app. `packaging/windows/make-icon.py` regenerates the icon.
 Releases are built by GitHub Actions ([release.yml](.github/workflows/release.yml)),
 not on a developer's PC:
 
-1. Bump `version` in the root `Cargo.toml` and commit.
+1. Bump `version` in the root `Cargo.toml` and commit. It is the version of
+   both apps (the Android `versionCode` is derived from it).
 2. Tag and push: `git tag v0.2.0 && git push origin master v0.2.0`.
-3. The workflow runs the tests, downloads a pinned mpv build (checked against
-   its SHA-256), builds the installer, and publishes a GitHub Release with
-   `IPTV-Setup-0.2.0.exe` and `SHA256SUMS.txt`. It refuses to run if the tag
-   doesn't match `Cargo.toml`.
+3. The workflow runs the tests, builds the Windows installer (with a pinned
+   mpv build checked against its SHA-256) and the signed Android APK, and
+   publishes a GitHub Release with `IPTV-Setup-0.2.0.exe`, `IPTV-0.2.0.apk`
+   and `SHA256SUMS.txt`. It refuses to run if the tag doesn't match
+   `Cargo.toml`, and refuses to release an unsigned APK.
 
-*Actions → Release → Run workflow* builds an installer without publishing
-it (download it from the run's artifacts). The bundled mpv version is pinned
+*Actions → Release → Run workflow* builds both without publishing them
+(download them from the run's artifacts). The bundled mpv version is pinned
 by `MPV_URL` / `MPV_SHA256` in the workflow.
+
+**Android signing (one-time setup).** Android only installs an update if it is
+signed with the same key as the installed app, so the key must never change
+or be lost. It lives outside the repository; GitHub Actions gets it from three
+repository secrets (*Settings → Secrets and variables → Actions*):
+
+| Secret | Value |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | the keystore file (`.jks`), base64-encoded |
+| `ANDROID_KEYSTORE_PASSWORD` | its password (also used for the key) |
+| `ANDROID_KEY_ALIAS` | the key alias |
+
+To sign a release build locally, set `ANDROID_KEYSTORE_FILE` (path to the
+`.jks`), `ANDROID_KEYSTORE_PASSWORD` and `ANDROID_KEY_ALIAS`, then run
+`./gradlew assembleRelease`.
 
 ### Building the Android app
 
@@ -242,7 +267,7 @@ or later, and the Rust Android targets plus `cargo-ndk`:
 rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 cargo install cargo-ndk
 cd android
-./gradlew assembleDebug        # -> app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleDebug        # -> app/build/outputs/apk/debug/app-debug.apk (debug-signed)
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
