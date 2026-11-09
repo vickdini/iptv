@@ -1,0 +1,9 @@
+[package]
+name = "iptv-core"
+description = "Platform-independent IPTV logic: M3U parsing and a TV-style channel tuner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

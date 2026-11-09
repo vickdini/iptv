@@ -1,0 +1,14 @@
+IPTV is licensed under the GNU General Public License v3 or later (LICENSE.txt).
+It bundles the following third-party software.
+
+mpv - video player engine (mpv\mpv.exe)
+  Version:  @MPV_VERSION@
+  Website:  https://mpv.io
+  License:  GNU General Public License v2 or later (see licenses\mpv-LICENSE.GPL.txt)
+  Source:   https://github.com/mpv-player/mpv
+  Windows build (including FFmpeg and other libraries it is linked with)
+  produced by shinchiro; build scripts and sources:
+            https://github.com/shinchiro/mpv-winbuild-cmake
+
+mpv is run as a separate, unmodified program. You may replace mpv\mpv.exe
+with any other mpv build.
