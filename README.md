@@ -30,15 +30,26 @@ Runs on Windows today; Linux and macOS work from source; Android is planned.
 
 ## Install (Windows)
 
-Download and run `IPTV-Setup-<version>.exe`. It's a single installer with
-everything included (the app and its video engine). Nothing else needs to be
-installed. It:
+**[Download the latest installer](https://github.com/vickdini/iptv/releases/latest)**
+(`IPTV-Setup-<version>.exe` under *Assets*) and run it. It's a single
+installer with everything included (the app and its video engine). Nothing
+else needs to be installed. It:
 
 * installs for the current user only, without asking for administrator rights
 * adds a Start-menu shortcut and, optionally, a desktop icon
 * can be removed from *Settings → Apps* like any other program
 
 The app opens maximized and starts playing straight away.
+
+The installer isn't code-signed yet, so Windows SmartScreen may say *"Windows
+protected your PC"*. Click **More info → Run anyway**. Every installer is
+built from this repository's source by GitHub Actions (see the
+[workflow](.github/workflows/release.yml) and its run logs). To verify your
+download, compare its SHA-256 with `SHA256SUMS.txt` on the release page:
+
+```powershell
+Get-FileHash IPTV-Setup-*.exe -Algorithm SHA256
+```
 
 ## Using it
 
@@ -182,6 +193,22 @@ powershell -ExecutionPolicy Bypass -File packaging\windows\build-installer.ps1
 The bundled mpv runs with `--config=no`, so a user's own mpv settings never
 affect the app. `packaging/windows/make-icon.py` regenerates the icon.
 
+### Publishing a release
+
+Releases are built by GitHub Actions ([release.yml](.github/workflows/release.yml)),
+not on a developer's PC:
+
+1. Bump `version` in the root `Cargo.toml` and commit.
+2. Tag and push: `git tag v0.2.0 && git push origin master v0.2.0`.
+3. The workflow runs the tests, downloads a pinned mpv build (checked against
+   its SHA-256), builds the installer, and publishes a GitHub Release with
+   `IPTV-Setup-0.2.0.exe` and `SHA256SUMS.txt`. It refuses to run if the tag
+   doesn't match `Cargo.toml`.
+
+*Actions → Release → Run workflow* builds an installer without publishing
+it (download it from the run's artifacts). The bundled mpv version is pinned
+by `MPV_URL` / `MPV_SHA256` in the workflow.
+
 ## Architecture
 
 ```
@@ -200,6 +227,7 @@ crates/
     storage.rs     config / cache locations, saved state
     gui.rs         Windows GUI integration (console attach, error dialog)
 packaging/windows/ installer script (Inno Setup), icon, third-party licenses
+.github/workflows/ release.yml: builds and publishes the installer on tag push
 ```
 
 mpv plays the video and draws the on-screen text. Keys pressed in its window
