@@ -430,7 +430,7 @@ dependencies = [
 
 [[package]]
 name = "iptv-android"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "iptv-core",
@@ -442,14 +442,14 @@ dependencies = [
 
 [[package]]
 name = "iptv-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "iptv-desktop"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -465,7 +465,7 @@ dependencies = [
 
 [[package]]
 name = "iptv-net"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "iptv-core",
@@ -478,7 +478,7 @@ dependencies = [
 
 [[package]]
 name = "iptv-web"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "iptv-core",
  "serde_json",

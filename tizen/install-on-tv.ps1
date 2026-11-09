@@ -30,11 +30,14 @@
 param(
     [Parameter(Mandatory = $true)][string]$TvIp,
     [string]$Profile = 'IPTV',
-    [string]$AppDir = (Join-Path $PSScriptRoot 'app'),
+    [string]$AppDir,
     [string]$TizenStudio = 'C:\tizen-studio'
 )
 $ErrorActionPreference = 'Stop'
 $appId = 'vkIPTVtv01.IPTV'
+# Default: the "app" folder next to this script. (Set here, not in param():
+# Windows PowerShell 5.1 leaves $PSScriptRoot empty in parameter defaults.)
+if (-not $AppDir) { $AppDir = Join-Path $PSScriptRoot 'app' }
 
 function Step($text) { Write-Host "`n== $text" -ForegroundColor Cyan }
 function Fail($text) { Write-Host "`n$text" -ForegroundColor Red; exit 1 }
