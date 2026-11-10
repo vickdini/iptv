@@ -1,5 +1,14 @@
 # IPTV
 
+<p align="center">
+  <a href="https://github.com/vickdini/iptv/releases/latest">
+    <img src="docs/images/iptv-overview.png" width="540"
+         alt="IPTV: free TV from 11,000+ public channels. Zap with Channel Up like a real TV, on Windows, Android, Android TV, Fire TV, Google TV, Samsung TV and Chromecast.">
+  </a>
+</p>
+
+<p align="center"><b><a href="https://github.com/vickdini/iptv/releases/latest">⬇ Download the latest version</a></b></p>
+
 Watch free, publicly available IPTV channels like a TV: zap with Up/Down, type a
 channel number, jump back to the previous channel, or pick from a scrollable
 channel list. Channels that don't work are found automatically and hidden.
