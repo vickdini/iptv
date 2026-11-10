@@ -34,7 +34,13 @@ fn releases_url() -> String {
 /// Checks for and downloads a newer installer. Blocking; returns the update
 /// and the verified installer's path, or None if this is the latest version.
 pub fn fetch() -> Result<Option<(Update, PathBuf)>> {
-    let Some(update) = update::check(&releases_url(), "IPTV-Setup-", ".exe", env!("CARGO_PKG_VERSION"))? else {
+    let Some(update) = update::check(
+        &releases_url(),
+        "IPTV-Setup-",
+        ".exe",
+        env!("CARGO_PKG_VERSION"),
+    )?
+    else {
         return Ok(None);
     };
     let path = storage::cache_dir().join("updates").join(&update.file_name);
@@ -46,7 +52,13 @@ pub fn fetch() -> Result<Option<(Update, PathBuf)>> {
 /// over the current version and restarts IPTV. The caller exits right after.
 pub fn install(installer: &Path) -> Result<()> {
     std::process::Command::new(installer)
-        .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER", "/RELAUNCH"])
+        .args([
+            "/VERYSILENT",
+            "/SUPPRESSMSGBOXES",
+            "/NORESTART",
+            "/CURRENTUSER",
+            "/RELAUNCH",
+        ])
         .spawn()?;
     Ok(())
 }

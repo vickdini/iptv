@@ -3,11 +3,15 @@ use std::{fs, path::PathBuf};
 use iptv_core::SavedState;
 
 pub fn config_dir() -> PathBuf {
-    dirs::config_dir().unwrap_or_else(std::env::temp_dir).join("iptv")
+    dirs::config_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("iptv")
 }
 
 pub fn cache_dir() -> PathBuf {
-    dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("iptv")
+    dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("iptv")
 }
 
 fn state_path() -> PathBuf {

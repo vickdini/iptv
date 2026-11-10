@@ -9,7 +9,9 @@
 //! `{"type":"tune","seq","idx","number","name","url","userAgent","referrer"}`,
 //! `{"type":"osd","text","ms"}`, `{"type":"digitTimer","ms"}`, `{"type":"save"}`.
 
-use iptv_core::{parse_m3u, tuner::DIGIT_TIMEOUT_MS, Action, Effect, SavedState, Tuner, DEFAULT_USER_AGENT};
+use iptv_core::{
+    parse_m3u, tuner::DIGIT_TIMEOUT_MS, Action, Effect, SavedState, Tuner, DEFAULT_USER_AGENT,
+};
 use serde_json::{json, Value};
 use wasm_bindgen::prelude::*;
 
@@ -26,11 +28,17 @@ impl WebCore {
     /// empty). `by_country` / `by_language` are iptv-org's playlists grouped
     /// by country / language (empty if unavailable), for that filter.
     #[wasm_bindgen(constructor)]
-    pub fn new(playlist: &str, state_json: &str, by_country: &str, by_language: &str) -> Result<WebCore, JsError> {
+    pub fn new(
+        playlist: &str,
+        state_json: &str,
+        by_country: &str,
+        by_language: &str,
+    ) -> Result<WebCore, JsError> {
         let mut channels = parse_m3u(playlist);
         iptv_core::m3u::tag_regions(&mut channels, by_country, by_language);
         let state: SavedState = serde_json::from_str(state_json).unwrap_or_default();
-        let tuner = Tuner::new(channels, &state).ok_or_else(|| JsError::new("The playlist contains no channels."))?;
+        let tuner = Tuner::new(channels, &state)
+            .ok_or_else(|| JsError::new("The playlist contains no channels."))?;
         Ok(WebCore { tuner, tune_seq: 0 })
     }
 
@@ -41,17 +49,29 @@ impl WebCore {
 
     /// Stream URL of a channel (used by the channel checker).
     pub fn url(&self, idx: u32) -> String {
-        self.tuner.channels().get(idx as usize).map(|c| c.url.clone()).unwrap_or_default()
+        self.tuner
+            .channels()
+            .get(idx as usize)
+            .map(|c| c.url.clone())
+            .unwrap_or_default()
     }
 
     /// Every channel name by index (fetched once for the channel list).
     pub fn names(&self) -> Vec<String> {
-        self.tuner.channels().iter().map(|c| c.name.clone()).collect()
+        self.tuner
+            .channels()
+            .iter()
+            .map(|c| c.name.clone())
+            .collect()
     }
 
     /// Every stream URL by index (fetched once for the channel checker).
     pub fn urls(&self) -> Vec<String> {
-        self.tuner.channels().iter().map(|c| c.url.clone()).collect()
+        self.tuner
+            .channels()
+            .iter()
+            .map(|c| c.url.clone())
+            .collect()
     }
 
     /// Hides (or shows again) a channel found not to work. Returns true if
@@ -154,6 +174,33 @@ impl WebCore {
         self.effects(fx)
     }
 
+    /// Preferred track languages: `{"audio": code|null, "subtitles": code|null}`.
+    #[wasm_bindgen(js_name = trackPrefs)]
+    pub fn track_prefs(&self) -> String {
+        let (audio, subtitles) = self.tuner.track_prefs();
+        json!({ "audio": audio, "subtitles": subtitles }).to_string()
+    }
+
+    /// Remembers the audio / subtitle language picked (null: stream default
+    /// / subtitles off). Returns effects (save).
+    #[wasm_bindgen(js_name = setTrackPrefs)]
+    pub fn set_track_prefs(&mut self, audio: Option<String>, subtitles: Option<String>) -> String {
+        let fx = self.tuner.set_track_prefs(audio, subtitles);
+        self.effects(fx)
+    }
+
+    /// "spa" -> "Spanish".
+    #[wasm_bindgen(js_name = languageName)]
+    pub fn language_name(&self, code: &str) -> String {
+        iptv_core::lang::language_name(code)
+    }
+
+    /// Whether two track language codes mean the same language ("es" / "spa").
+    #[wasm_bindgen(js_name = sameLanguage)]
+    pub fn same_language(&self, a: &str, b: &str) -> bool {
+        iptv_core::lang::same_language(a, b)
+    }
+
     /// "Italy · English" or empty.
     #[wasm_bindgen(js_name = regionLabel)]
     pub fn region_label(&self) -> String {
@@ -208,8 +255,12 @@ impl WebCore {
                         "referrer": ch.referrer,
                     }));
                 }
-                Effect::Osd { text, ms } => out.push(json!({ "type": "osd", "text": text, "ms": ms })),
-                Effect::StartDigitTimer => out.push(json!({ "type": "digitTimer", "ms": DIGIT_TIMEOUT_MS })),
+                Effect::Osd { text, ms } => {
+                    out.push(json!({ "type": "osd", "text": text, "ms": ms }))
+                }
+                Effect::StartDigitTimer => {
+                    out.push(json!({ "type": "digitTimer", "ms": DIGIT_TIMEOUT_MS }))
+                }
                 Effect::Save => out.push(json!({ "type": "save" })),
             }
         }
@@ -224,7 +275,11 @@ mod tests {
     const PLAYLIST: &str = "#EXTM3U\n#EXTINF:-1 group-title=\"News\",A\nhttp://a\n#EXTINF:-1 http-user-agent=\"UA\" group-title=\"News\",B\nhttp://b\n#EXTINF:-1,C\nhttp://c\n";
 
     fn fx(s: &str) -> Vec<Value> {
-        serde_json::from_str::<Value>(s).unwrap().as_array().unwrap().clone()
+        serde_json::from_str::<Value>(s)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone()
     }
 
     #[test]

@@ -94,6 +94,8 @@ The channel list has a **Search channels…** box at the top (phone keyboard,
 or the TV's on-screen keyboard: Up from the first channel reaches it).
 
 The 🌐 button in the channel list header chooses countries and languages.
+On channels that broadcast several audio languages or subtitles, a subtitles
+button appears there too (remotes with an Audio or CC key can use those).
 On phones and tablets, the ⏻ button in the channel list header exits the app
 (it also stops casting).
 
@@ -179,7 +181,9 @@ TVs from 2019 on.
 | Left / Right | previous / next group |
 | PRE-CH | previous channel |
 | INFO | channel info |
-| Red / Green / Yellow | favorite / favorites only / help |
+| Red / Green | favorite / favorites only |
+| Yellow | audio language & subtitles (help when the channel has no choice) |
+| AD/SUBT. / MTS keys | next subtitles / next audio language |
 | Blue (or Up from the first channel in the list) | search by name with the on-screen keyboard |
 | Yellow (in the list) | choose countries and languages |
 | Back | close the list, or exit |
@@ -197,6 +201,7 @@ TVs from 2019 on.
 | l / Tab / right-click | open / close the channel list |
 | / or Ctrl+F | search channels by name (see below) |
 | c | choose countries and languages (see below) |
+| a / t | next audio language / next subtitles (and off), see below |
 | g / G | next / previous group (Movies, News, Sports…) |
 | s / S | toggle favorite / zap only through favorites |
 | i | channel info |
@@ -240,6 +245,21 @@ Channel numbers don't change, and groups with nothing to show are skipped.
 The data comes from iptv-org's playlists grouped by country and by language
 (fetched alongside the main playlist, with the same caching), so it is
 available for the default iptv-org playlist.
+
+### Audio languages and subtitles
+
+Some channels broadcast more than one audio language (for example the
+original version next to a dubbed one, or audio description) or subtitles.
+When you tune to one, a short note says what it offers. Your choice is
+remembered by **language** and used on every channel that offers it: pick
+English subtitles once and they come on wherever English subtitles exist.
+
+* **Windows:** **a** steps through the audio languages, **t** through the
+  subtitles and then off.
+* **Android:** the subtitles button in the channel list header (it only shows
+  on channels with a choice), or the remote's Audio / CC keys.
+* **Samsung TV:** **Yellow** opens a small menu: ▲ ▼ pick Audio or
+  Subtitles, ◀ ▶ change it, **Back** closes.
 
 ### Searching
 

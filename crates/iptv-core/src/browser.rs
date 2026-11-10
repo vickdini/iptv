@@ -18,7 +18,12 @@ pub struct Browser {
 impl Browser {
     /// `items` must be sorted ascending (as returned by `Tuner::view`).
     pub fn new(items: Vec<usize>, focus: usize, rows: usize) -> Self {
-        let mut b = Self { items, selected: 0, scroll: 0, rows: rows.max(1) };
+        let mut b = Self {
+            items,
+            selected: 0,
+            scroll: 0,
+            rows: rows.max(1),
+        };
         b.focus(focus, true);
         b
     }
@@ -47,7 +52,10 @@ impl Browser {
             self.scroll = 0;
             return;
         }
-        self.selected = self.items.partition_point(|&c| c < selected).min(self.items.len() - 1);
+        self.selected = self
+            .items
+            .partition_point(|&c| c < selected)
+            .min(self.items.len() - 1);
         self.scroll = self.selected.saturating_sub(row).min(self.max_scroll());
     }
 
@@ -80,7 +88,10 @@ impl Browser {
         if self.items.is_empty() {
             return;
         }
-        let pos = self.items.partition_point(|&c| c < channel).min(self.items.len() - 1);
+        let pos = self
+            .items
+            .partition_point(|&c| c < channel)
+            .min(self.items.len() - 1);
         self.selected = pos;
         if center || !self.is_visible(pos) {
             self.scroll = pos.saturating_sub(self.rows / 2).min(self.max_scroll());
@@ -97,7 +108,9 @@ impl Browser {
             return;
         }
         let last = self.items.len() as isize - 1;
-        self.selected = (self.selected as isize).saturating_add(delta).clamp(0, last) as usize;
+        self.selected = (self.selected as isize)
+            .saturating_add(delta)
+            .clamp(0, last) as usize;
         if self.selected < self.scroll {
             self.scroll = self.selected;
         } else if self.selected >= self.scroll + self.rows {
@@ -117,8 +130,9 @@ impl Browser {
 
     /// Scrolls the view without moving the selection (mouse wheel).
     pub fn scroll_by(&mut self, delta: isize) {
-        self.scroll =
-            (self.scroll as isize).saturating_add(delta).clamp(0, self.max_scroll() as isize) as usize;
+        self.scroll = (self.scroll as isize)
+            .saturating_add(delta)
+            .clamp(0, self.max_scroll() as isize) as usize;
     }
 
     /// Jumps the view to a fraction (0..=1) of the list (scrollbar click).
@@ -209,7 +223,7 @@ mod tests {
     fn replace_items_keeps_view_steady() {
         let mut b = Browser::new((0..100).collect(), 50, 10); // rows 45..55
         b.move_by(2); // select 52 on row 7
-        // Remove every channel below 40 and channel 52 itself.
+                      // Remove every channel below 40 and channel 52 itself.
         b.replace_items((40..100).filter(|&c| c != 52).collect());
         assert_eq!(b.selected_channel(), Some(53));
         let row = b.visible().find(|&(_, _, sel)| sel).map(|(r, _, _)| r);

@@ -48,7 +48,12 @@ pub fn groups_by_url(playlist: &str) -> std::collections::HashMap<String, Vec<St
 pub fn tag_regions(channels: &mut [Channel], by_country: &str, by_language: &str) {
     let countries = groups_by_url(by_country);
     let languages = groups_by_url(by_language);
-    let known = |v: &Vec<String>| v.iter().filter(|g| *g != "Undefined").cloned().collect::<Vec<_>>();
+    let known = |v: &Vec<String>| {
+        v.iter()
+            .filter(|g| *g != "Undefined")
+            .cloned()
+            .collect::<Vec<_>>()
+    };
     for ch in channels {
         if let Some(c) = countries.get(&ch.url) {
             ch.countries = known(c);
@@ -204,7 +209,10 @@ http://bare/url.m3u8
         assert_eq!(chs[0].tvg_id.as_deref(), Some("00sReplay.us@SD"));
         assert_eq!(chs[0].logo.as_deref(), Some("https://x/logo.png"));
         assert_eq!(chs[0].groups, vec!["Movies"]);
-        assert_eq!(chs[0].url, "https://jmp2.uk/plu-62ba60f059624e000781c436.m3u8");
+        assert_eq!(
+            chs[0].url,
+            "https://jmp2.uk/plu-62ba60f059624e000781c436.m3u8"
+        );
 
         assert_eq!(chs[1].name, "1+1 International");
         assert_eq!(
@@ -222,7 +230,9 @@ http://bare/url.m3u8
 
     #[test]
     fn tags_countries_and_languages_by_url() {
-        let mut chs = parse("#EXTM3U\n#EXTINF:-1,A\nhttp://a\n#EXTINF:-1,B\nhttp://b\n#EXTINF:-1,C\nhttp://c\n");
+        let mut chs = parse(
+            "#EXTM3U\n#EXTINF:-1,A\nhttp://a\n#EXTINF:-1,B\nhttp://b\n#EXTINF:-1,C\nhttp://c\n",
+        );
         let by_country = "#EXTM3U\n#EXTINF:-1 group-title=\"Italy\",A\nhttp://a\n\
             #EXTINF:-1 group-title=\"Switzerland\",A\nhttp://a\n#EXTINF:-1 group-title=\"Undefined\",C\nhttp://c\n";
         let by_language = "#EXTM3U\n#EXTINF:-1 group-title=\"Italian\",A\nhttp://a\n#EXTINF:-1 group-title=\"English\",B\nhttp://b\n";
@@ -236,7 +246,8 @@ http://bare/url.m3u8
 
     #[test]
     fn falls_back_to_tvg_name_and_survives_garbage() {
-        let chs = parse("#EXTINF:-1 tvg-name=\"Fallback\" broken= \"x,\nhttp://u\n#EXTINF:\nhttp://v\n");
+        let chs =
+            parse("#EXTINF:-1 tvg-name=\"Fallback\" broken= \"x,\nhttp://u\n#EXTINF:\nhttp://v\n");
         assert_eq!(chs.len(), 2);
         assert_eq!(chs[0].name, "Fallback");
         assert_eq!(chs[1].name, "http://v");

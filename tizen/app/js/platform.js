@@ -53,6 +53,12 @@ var Store = (function () {
 function TizenPlayer() {
     var token = 0;
     var av = webapis.avplay;
+    var self = this;
+    /** Subtitles chosen (AVPlay has no "off" track: we mute them). */
+    var textOn = false;
+    var textTrack = -1;
+    /** Called with (text, durationMs) for each subtitle while they're on. */
+    this.onSubtitle = null;
 
     function stopQuietly() {
         try { av.stop(); } catch (e) { /* not playing */ }
@@ -64,6 +70,8 @@ function TizenPlayer() {
         var ready = false;
         var mine = function () { return my === token; };
         stopQuietly();
+        textOn = false;
+        textTrack = -1;
         try {
             av.open(tune.url);
             av.setDisplayRect(0, 0, 1920, 1080);
@@ -75,9 +83,13 @@ function TizenPlayer() {
                 },
                 onstreamcompleted: function () { if (mine()) onError('stream ended'); },
                 onerror: function (e) { if (mine()) onError(String(e)); },
+                onsubtitlechange: function (duration, text) {
+                    if (mine() && textOn && self.onSubtitle) self.onSubtitle(String(text || ''), Number(duration) || 0);
+                },
             });
             av.prepareAsync(function () {
                 if (!mine()) return;
+                try { av.setSilentSubtitle(true); } catch (e) { /* no subtitles */ }
                 av.play();
                 if (!ready) { ready = true; onReady(); }
             }, function (e) {
@@ -90,6 +102,50 @@ function TizenPlayer() {
     };
 
     this.stop = function () { token++; stopQuietly(); };
+
+    /** `{audio: [{id, lang, label, selected}], subs: [...]}` of the current stream. */
+    this.tracks = function () {
+        var out = { audio: [], subs: [] };
+        var info;
+        try { info = av.getTotalTrackInfo(); } catch (e) { return out; }
+        var current = {};
+        try {
+            av.getCurrentStreamInfo().forEach(function (s) { current[s.type] = Number(s.index); });
+        } catch (e) { /* not playing */ }
+        for (var i = 0; i < info.length; i++) {
+            var t = info[i];
+            var extra = {};
+            try { extra = JSON.parse(t.extra_info); } catch (e) { /* none */ }
+            var lang = String(extra.language || extra.track_lang || extra.lang || '');
+            var id = Number(t.index);
+            if (t.type === 'AUDIO') {
+                out.audio.push({ id: id, lang: lang, label: '', selected: current.AUDIO === id });
+            } else if (t.type === 'TEXT') {
+                out.subs.push({ id: id, lang: lang, label: '', selected: textOn && textTrack === id });
+            }
+        }
+        return out;
+    };
+
+    /** Plays audio track `id`, or subtitles `id` (null: subtitles off). */
+    this.select = function (kind, id) {
+        try {
+            if (kind === 'audio') {
+                av.setSelectTrack('AUDIO', id);
+            } else if (id === null) {
+                textOn = false;
+                av.setSilentSubtitle(true);
+            } else {
+                av.setSelectTrack('TEXT', id);
+                av.setSilentSubtitle(false);
+                textOn = true;
+                textTrack = id;
+            }
+            return true;
+        } catch (e) {
+            return false;
+        }
+    };
 }
 
 /** Desktop-browser fallback for development. */
@@ -123,6 +179,26 @@ function HtmlPlayer() {
         video.removeAttribute('src');
         video.load();
     };
+
+    this.tracks = function () {
+        var out = { audio: [], subs: [] };
+        if (!hls) return out;
+        (hls.audioTracks || []).forEach(function (t, i) {
+            out.audio.push({ id: i, lang: t.lang || '', label: t.name || '', selected: hls.audioTrack === i });
+        });
+        (hls.subtitleTracks || []).forEach(function (t, i) {
+            out.subs.push({ id: i, lang: t.lang || '', label: t.name || '', selected: hls.subtitleTrack === i });
+        });
+        return out;
+    };
+
+    this.select = function (kind, id) {
+        if (!hls) return false;
+        if (kind === 'audio') hls.audioTrack = id;
+        else if (id === null) hls.subtitleTrack = -1;
+        else { hls.subtitleDisplay = true; hls.subtitleTrack = id; }
+        return true;
+    };
 }
 
 function createPlayer() {
@@ -134,11 +210,11 @@ function createPlayer() {
 /**
  * Returns a function mapping a KeyboardEvent to a key name: 'up', 'down',
  * 'left', 'right', 'enter', 'back', 'digit' (with .digit), 'chup', 'chdown',
- * 'info', 'prev', 'list', 'red', 'green', 'yellow', or null.
+ * 'info', 'prev', 'list', 'red', 'green', 'yellow', 'audio', 'subtitles', or null.
  */
 function setupKeys() {
     var codes = {};
-    var tizenKeys = ['ChannelUp', 'ChannelDown', 'Info', 'PreviousChannel', 'ChannelList',
+    var tizenKeys = ['ChannelUp', 'ChannelDown', 'Info', 'PreviousChannel', 'ChannelList', 'MTS', 'Caption',
         'ColorF0Red', 'ColorF1Green', 'ColorF2Yellow', 'ColorF3Blue',
         '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
     if (IS_TIZEN) {
@@ -164,6 +240,8 @@ function setupKeys() {
             case 'ColorF1Green': return { key: 'green' };
             case 'ColorF2Yellow': return { key: 'yellow' };
             case 'ColorF3Blue': return { key: 'blue' };
+            case 'MTS': return { key: 'audio' };
+            case 'Caption': return { key: 'subtitles' };
         }
         if (k >= 48 && k <= 57) return { key: 'digit', digit: String(k - 48) };
         if (k >= 96 && k <= 105) return { key: 'digit', digit: String(k - 96) };
@@ -182,6 +260,8 @@ function setupKeys() {
             case 191: return { key: 'blue' };                 // "/" = search
             case 83: return { key: 'red' };                   // S
             case 67: return { key: 'yellow' };                // C = countries
+            case 65: return { key: 'audio' };                 // A
+            case 84: return { key: 'subtitles' };             // T
         }
         return null;
     };

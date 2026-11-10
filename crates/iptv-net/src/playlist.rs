@@ -68,8 +68,12 @@ pub fn load(source: &str, cache_dir: &Path) -> Result<(Vec<Channel>, Freshness)>
 /// next to `index.m3u`; returns those URLs for such a playlist.
 pub fn companion_urls(source: &str) -> Option<(String, String)> {
     let base = source.strip_suffix("/index.m3u")?;
-    (is_url(source) && base.contains("iptv-org"))
-        .then(|| (format!("{base}/index.country.m3u"), format!("{base}/index.language.m3u")))
+    (is_url(source) && base.contains("iptv-org")).then(|| {
+        (
+            format!("{base}/index.country.m3u"),
+            format!("{base}/index.language.m3u"),
+        )
+    })
 }
 
 fn is_url(s: &str) -> bool {
@@ -90,26 +94,40 @@ fn load_url(url: &str, cache_dir: &Path) -> Result<(String, Freshness)> {
             // requires a cached copy.
             Ok((cached.expect("cached copy"), Freshness::UpToDate))
         }
-        Ok(Fetched::New { body, etag, last_modified }) => {
-            let meta = CacheMeta { url: url.to_string(), etag, last_modified };
+        Ok(Fetched::New {
+            body,
+            etag,
+            last_modified,
+        }) => {
+            let meta = CacheMeta {
+                url: url.to_string(),
+                etag,
+                last_modified,
+            };
             if let Err(e) = save_cache(&data_path, &meta_path, &body, &meta) {
                 eprintln!("warning: could not cache playlist: {e:#}");
             }
             Ok((body, Freshness::Downloaded))
         }
-        Err(e) => match cached {
-            Some(text) => {
-                eprintln!("warning: could not check for a newer playlist ({e:#}); using the saved copy");
-                Ok((text, Freshness::Offline))
+        Err(e) => {
+            match cached {
+                Some(text) => {
+                    eprintln!("warning: could not check for a newer playlist ({e:#}); using the saved copy");
+                    Ok((text, Freshness::Offline))
+                }
+                None => Err(e),
             }
-            None => Err(e),
-        },
+        }
     }
 }
 
 enum Fetched {
     NotModified,
-    New { body: String, etag: Option<String>, last_modified: Option<String> },
+    New {
+        body: String,
+        etag: Option<String>,
+        last_modified: Option<String>,
+    },
 }
 
 fn fetch(url: &str, validators: Option<&CacheMeta>) -> Result<Fetched> {
@@ -134,7 +152,11 @@ fn fetch(url: &str, validators: Option<&CacheMeta>) -> Result<Fetched> {
             let etag = resp.header("ETag").map(str::to_string);
             let last_modified = resp.header("Last-Modified").map(str::to_string);
             let body = resp.into_string()?;
-            Ok(Fetched::New { body, etag, last_modified })
+            Ok(Fetched::New {
+                body,
+                etag,
+                last_modified,
+            })
         }
         status => bail!("unexpected HTTP status {status}"),
     }
@@ -163,9 +185,9 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 
 fn cache_paths(url: &str, cache_dir: &Path) -> (PathBuf, PathBuf) {
     // Simple stable file name derived from the URL (FNV-1a).
-    let hash = url
-        .bytes()
-        .fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3));
+    let hash = url.bytes().fold(0xcbf29ce484222325u64, |h, b| {
+        (h ^ b as u64).wrapping_mul(0x100000001b3)
+    });
     let base = cache_dir.join(format!("playlist-{hash:016x}"));
     (base.with_extension("m3u"), base.with_extension("json"))
 }
@@ -274,7 +296,10 @@ mod tests {
             ))
         );
         assert_eq!(companion_urls("https://example.com/index.m3u"), None);
-        assert_eq!(companion_urls("https://iptv-org.github.io/iptv/countries/it.m3u"), None);
+        assert_eq!(
+            companion_urls("https://iptv-org.github.io/iptv/countries/it.m3u"),
+            None
+        );
     }
 
     #[test]
@@ -290,7 +315,8 @@ mod tests {
         let (src_data, src_meta) = cache_paths(&server.url, &dir);
         let (dst_data, dst_meta) = cache_paths(dead, &dir);
         fs::copy(src_data, dst_data).unwrap();
-        let mut meta: CacheMeta = serde_json::from_str(&fs::read_to_string(src_meta).unwrap()).unwrap();
+        let mut meta: CacheMeta =
+            serde_json::from_str(&fs::read_to_string(src_meta).unwrap()).unwrap();
         meta.url = dead.into();
         fs::write(dst_meta, serde_json::to_string(&meta).unwrap()).unwrap();
 

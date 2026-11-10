@@ -51,15 +51,77 @@ pub enum Event {
     ClientMessage(Vec<String>),
     /// A stream failed. `entry_id` is mpv's playlist entry id: entries are
     /// numbered 1, 2, 3... in `loadfile` order, which identifies the stream.
-    PlaybackError { entry_id: Option<u64>, error: String },
+    PlaybackError {
+        entry_id: Option<u64>,
+        error: String,
+    },
     /// The stream started decoding.
     FileLoaded,
     /// Mouse position in window pixels; `hover` is false outside the window.
     MousePos { x: f64, y: f64, hover: bool },
     /// Window (OSD) height in pixels.
     OsdSize { h: f64 },
+    /// The current stream's audio and subtitle tracks.
+    Tracks(Vec<Track>),
     /// mpv exited or the IPC connection closed.
     Closed,
+}
+
+/// An audio or subtitle track of the current stream.
+#[derive(Clone, Debug)]
+pub struct Track {
+    /// mpv's track id (`aid` / `sid` value).
+    pub id: i64,
+    pub kind: TrackKind,
+    /// Language code from the stream ("spa", "en"...), may be empty.
+    pub lang: String,
+    /// Name given by the broadcaster ("Castellano"), may be empty.
+    pub title: String,
+    pub selected: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrackKind {
+    Audio,
+    Sub,
+}
+
+impl Track {
+    /// What to show the user: the broadcaster's name for the track, else
+    /// the language name.
+    pub fn label(&self) -> String {
+        let lang = iptv_core::lang::language_name(&self.lang);
+        let title = self.title.trim();
+        if title.is_empty() {
+            lang
+        } else if self.lang.is_empty() || lang.eq_ignore_ascii_case(title) || lang == "Unknown" {
+            title.to_string()
+        } else {
+            format!("{title} ({lang})")
+        }
+    }
+}
+
+fn parse_tracks(list: &Value) -> Vec<Track> {
+    let Some(list) = list.as_array() else {
+        return vec![];
+    };
+    list.iter()
+        .filter_map(|t| {
+            let kind = match t["type"].as_str()? {
+                "audio" => TrackKind::Audio,
+                "sub" => TrackKind::Sub,
+                _ => return None,
+            };
+            Some(Track {
+                id: t["id"].as_i64()?,
+                kind,
+                lang: t["lang"].as_str().unwrap_or_default().to_string(),
+                title: t["title"].as_str().unwrap_or_default().to_string(),
+                selected: t["selected"].as_bool().unwrap_or(false),
+            })
+        })
+        .collect()
 }
 
 trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
@@ -79,7 +141,10 @@ pub struct Options {
 }
 
 impl Mpv {
-    pub async fn spawn(mpv: &Path, opts: &Options) -> Result<(Self, mpsc::UnboundedReceiver<Event>)> {
+    pub async fn spawn(
+        mpv: &Path,
+        opts: &Options,
+    ) -> Result<(Self, mpsc::UnboundedReceiver<Event>)> {
         let ipc = ipc_path();
         let input_conf = write_input_conf()?;
 
@@ -155,8 +220,12 @@ impl Mpv {
             #[cfg(unix)]
             socket_path: ipc,
         };
-        mpv.command(json!(["observe_property", 1, "mouse-pos"])).await?;
-        mpv.command(json!(["observe_property", 2, "osd-dimensions"])).await?;
+        mpv.command(json!(["observe_property", 1, "mouse-pos"]))
+            .await?;
+        mpv.command(json!(["observe_property", 2, "osd-dimensions"]))
+            .await?;
+        mpv.command(json!(["observe_property", 3, "track-list"]))
+            .await?;
         Ok((mpv, rx))
     }
 
@@ -190,7 +259,23 @@ impl Mpv {
             .await
     }
 
-    pub async fn play(&mut self, url: &str, title: &str, user_agent: &str, referrer: &str) -> Result<()> {
+    /// Preferred audio / subtitle languages for the next streams (lists of
+    /// language codes); no subtitle languages = subtitles off.
+    pub async fn set_track_prefs(&mut self, alang: &[String], slang: &[String]) -> Result<()> {
+        self.set_property("alang", json!(alang.join(","))).await?;
+        self.set_property("slang", json!(slang.join(","))).await?;
+        self.set_property("aid", json!("auto")).await?;
+        self.set_property("sid", json!(if slang.is_empty() { "no" } else { "auto" }))
+            .await
+    }
+
+    pub async fn play(
+        &mut self,
+        url: &str,
+        title: &str,
+        user_agent: &str,
+        referrer: &str,
+    ) -> Result<()> {
         // Set per-stream options as properties first: this works on every
         // mpv version, unlike the loadfile per-file options syntax.
         self.set_property("user-agent", json!(user_agent)).await?;
@@ -212,7 +297,9 @@ impl Drop for Mpv {
 async fn read_events(reader: impl AsyncRead + Unpin, tx: mpsc::UnboundedSender<Event>) {
     let mut lines = BufReader::new(reader).lines();
     while let Ok(Some(line)) = lines.next_line().await {
-        let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
+        let Ok(msg) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
         if let Some(err) = msg.get("error").and_then(Value::as_str) {
             if err != "success" {
                 eprintln!("mpv command failed: {err}");
@@ -223,13 +310,20 @@ async fn read_events(reader: impl AsyncRead + Unpin, tx: mpsc::UnboundedSender<E
             Some("client-message") => {
                 let args = msg["args"]
                     .as_array()
-                    .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 Event::ClientMessage(args)
             }
             Some("end-file") if msg["reason"] == "error" => Event::PlaybackError {
                 entry_id: msg["playlist_entry_id"].as_u64(),
-                error: msg["file_error"].as_str().unwrap_or("unknown error").to_string(),
+                error: msg["file_error"]
+                    .as_str()
+                    .unwrap_or("unknown error")
+                    .to_string(),
             },
             Some("file-loaded") => Event::FileLoaded,
             Some("property-change") => {
@@ -248,6 +342,7 @@ async fn read_events(reader: impl AsyncRead + Unpin, tx: mpsc::UnboundedSender<E
                         (Some(w), Some(h)) if w > 0.0 && h > 0.0 => Event::OsdSize { h },
                         _ => continue,
                     },
+                    Some("track-list") => Event::Tracks(parse_tracks(d)),
                     _ => continue,
                 }
             }
@@ -331,15 +426,26 @@ pub fn locate(explicit: Option<PathBuf>) -> Option<PathBuf> {
             }
         }
         if let Some(home) = dirs::home_dir() {
-            candidates.push(home.join("scoop").join("apps").join("mpv").join("current").join(exe));
+            candidates.push(
+                home.join("scoop")
+                    .join("apps")
+                    .join("mpv")
+                    .join("current")
+                    .join(exe),
+            );
         }
     } else if cfg!(target_os = "macos") {
         candidates.extend(
-            ["/opt/homebrew/bin/mpv", "/usr/local/bin/mpv", "/Applications/mpv.app/Contents/MacOS/mpv"]
-                .map(PathBuf::from),
+            [
+                "/opt/homebrew/bin/mpv",
+                "/usr/local/bin/mpv",
+                "/Applications/mpv.app/Contents/MacOS/mpv",
+            ]
+            .map(PathBuf::from),
         );
     } else {
-        candidates.extend(["/usr/bin/mpv", "/usr/local/bin/mpv", "/snap/bin/mpv"].map(PathBuf::from));
+        candidates
+            .extend(["/usr/bin/mpv", "/usr/local/bin/mpv", "/snap/bin/mpv"].map(PathBuf::from));
     }
     candidates.into_iter().find(|p| p.is_file())
 }

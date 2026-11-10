@@ -11,6 +11,15 @@
     <string name="close">Close</string>
     <string name="exit">Exit IPTV</string>
     <string name="regions">Countries &amp; languages</string>
+    <string name="tracks">Audio language &amp; subtitles</string>
+    <string name="tracks_audio">Audio language</string>
+    <string name="tracks_subtitles">Subtitles</string>
+    <string name="tracks_off">Off</string>
+    <string name="tracks_none">This channel has a single audio language and no subtitles.</string>
+    <string name="tracks_hint_audio">%d audio languages</string>
+    <string name="tracks_hint_subs">%d subtitles</string>
+    <string name="tracks_hint">This channel has %1$s.\nChange them with the subtitles button in the channel list.</string>
+    <string name="tracks_hint_tv">This channel has %1$s.\nChange them with the Audio / Subtitles key, or the button in the channel list.</string>
     <string name="regions_countries">Countries</string>
     <string name="regions_languages">Languages</string>
     <string name="regions_show_all">Show all channels</string>

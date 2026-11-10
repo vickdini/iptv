@@ -38,6 +38,42 @@ html, body {
 
 .osd.right { left: auto; right: 64px; }
 
+/* Subtitles drawn by the app (AVPlay only hands over their text). */
+.subs {
+    position: absolute;
+    left: 160px;
+    right: 160px;
+    bottom: 72px;
+    text-align: center;
+    font-size: 46px;
+    line-height: 1.3;
+    white-space: pre-wrap;
+}
+
+.subs span {
+    background: rgba(0, 0, 0, 0.6);
+    padding: 4px 14px;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+}
+
+/* Audio language & subtitles menu (Yellow). */
+.tracks {
+    position: absolute;
+    right: 64px;
+    bottom: 96px;
+    min-width: 720px;
+    padding: 12px 0;
+    background: rgba(20, 20, 20, 0.92);
+    border-radius: 12px;
+    font-size: 34px;
+}
+
+.tracks .title { padding: 8px 32px 16px; color: #b4b4b4; font-size: 28px; }
+.tracks .item { display: flex; justify-content: space-between; padding: 14px 32px; }
+.tracks .item.selected { background: #1e5aa0; }
+.tracks .value { margin-left: 48px; color: #ffd54f; }
+
 .status {
     position: absolute;
     left: 0;

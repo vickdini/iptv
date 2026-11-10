@@ -48,7 +48,10 @@ pub struct HealthCache {
 }
 
 fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 impl HealthCache {
@@ -59,7 +62,11 @@ impl HealthCache {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        Self { path, entries, dirty: false }
+        Self {
+            path,
+            entries,
+            dirty: false,
+        }
     }
 
     /// `(works, still_fresh)` for a URL checked before.
@@ -70,7 +77,8 @@ impl HealthCache {
     }
 
     pub fn record(&mut self, url: &str, ok: bool) {
-        self.entries.insert(url.to_string(), Entry { ok, at: now() });
+        self.entries
+            .insert(url.to_string(), Entry { ok, at: now() });
         self.dirty = true;
     }
 
@@ -115,7 +123,9 @@ where
     for _ in 0..WORKERS {
         let (queue, agent, on_result) = (queue.clone(), agent.clone(), on_result.clone());
         thread::spawn(move || loop {
-            let Some((idx, ch)) = queue.lock().unwrap().pop_front() else { return };
+            let Some((idx, ch)) = queue.lock().unwrap().pop_front() else {
+                return;
+            };
             let probe = probe(&agent, &ch, default_ua);
             if !on_result(CheckResult { idx, probe }) {
                 return;
@@ -152,7 +162,11 @@ pub fn probe(agent: &ureq::Agent, ch: &Channel, default_ua: &str) -> Probe {
     }
     let Some(variant) = first_variant(&body) else {
         // Media playlist: it must list segments.
-        return if body.contains("#EXTINF") { Probe::Ok } else { Probe::Dead };
+        return if body.contains("#EXTINF") {
+            Probe::Ok
+        } else {
+            Probe::Dead
+        };
     };
     // Master playlist: the first variant must be reachable too.
     let Ok(variant_url) = url::Url::parse(&final_url).and_then(|base| base.join(variant)) else {
@@ -219,7 +233,10 @@ mod tests {
     #[test]
     fn unprobeable_schemes_are_unknown() {
         let agent = ureq::agent();
-        let ch = Channel { url: "rtmp://example.com/live".into(), ..Default::default() };
+        let ch = Channel {
+            url: "rtmp://example.com/live".into(),
+            ..Default::default()
+        };
         assert_eq!(probe(&agent, &ch, "test"), Probe::Unknown);
     }
 }

@@ -11,19 +11,22 @@ use std::{path::PathBuf, time::Duration};
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use iptv_core::{tuner::DIGIT_TIMEOUT_MS, Action, Effect, Tuner};
+use iptv_core::{lang::language_codes, tuner::DIGIT_TIMEOUT_MS, Action, Effect, Tuner};
 use iptv_net::{health, playlist, DEFAULT_USER_AGENT};
 use serde_json::json;
 use tokio::time::Instant;
 
 use crate::{
     health::{CheckResult, HealthCache, Probe},
-    mpv::{Event, Mpv},
+    mpv::{Event, Mpv, Track, TrackKind},
     panel::{Hit, Panel, Picker, PickerTab},
 };
 
 const DEFAULT_PLAYLIST: &str = "https://iptv-org.github.io/iptv/index.m3u";
 const PANEL_OVERLAY_ID: u32 = 1;
+/// The "this channel has other languages" hint at the bottom.
+const HINT_OVERLAY_ID: u32 = 2;
+const HINT_MS: u64 = 6000;
 const WHEEL_ROWS: isize = 3;
 
 /// Watch IPTV like a TV: zap channels with Up/Down, type channel numbers,
@@ -94,14 +97,19 @@ async fn load_channels(source: &str) -> Result<Vec<iptv_core::Channel>> {
     let source = source.to_string();
     let started = std::time::Instant::now();
     let (channels, freshness) =
-        tokio::task::spawn_blocking(move || playlist::load(&source, &storage::cache_dir())).await??;
+        tokio::task::spawn_blocking(move || playlist::load(&source, &storage::cache_dir()))
+            .await??;
     let what = match freshness {
         playlist::Freshness::UpToDate => "already up to date",
         playlist::Freshness::Downloaded => "downloaded new version",
         playlist::Freshness::Offline => "offline, using saved copy",
         playlist::Freshness::Local => "local file",
     };
-    eprintln!("Playlist: {what} ({} channels, {:.0?})", channels.len(), started.elapsed());
+    eprintln!(
+        "Playlist: {what} ({} channels, {:.0?})",
+        channels.len(),
+        started.elapsed()
+    );
     if channels.is_empty() {
         bail!("The playlist contains no channels.");
     }
@@ -114,7 +122,11 @@ async fn run(args: Args) -> Result<()> {
         let tuner = Tuner::new(channels, &Default::default()).expect("non-empty playlist");
         if args.list_groups {
             for g in tuner.groups() {
-                let n = tuner.channels().iter().filter(|c| c.groups.contains(g)).count();
+                let n = tuner
+                    .channels()
+                    .iter()
+                    .filter(|c| c.groups.contains(g))
+                    .count();
                 println!("{g} ({n})");
             }
         }
@@ -163,8 +175,14 @@ async fn run(args: Args) -> Result<()> {
             bail!("Unknown group {g:?}; use --list-groups to see the available ones.");
         }
     }
-    eprintln!("Loaded {} channels. Using mpv at {}", tuner.channels().len(), mpv_path.display());
-    eprintln!("Press 'h' in the player window for the remote-control keys, 'l' for the channel list.");
+    eprintln!(
+        "Loaded {} channels. Using mpv at {}",
+        tuner.channels().len(),
+        mpv_path.display()
+    );
+    eprintln!(
+        "Press 'h' in the player window for the remote-control keys, 'l' for the channel list."
+    );
 
     // Hide channels already known to be dead; queue the rest for checking,
     // nearest to the current channel first.
@@ -187,7 +205,10 @@ async fn run(args: Args) -> Result<()> {
     let check_total = jobs.len();
     let (check_tx, mut checks) = tokio::sync::mpsc::unbounded_channel::<CheckResult>();
     if !args.no_check {
-        let jobs = jobs.into_iter().map(|i| (i, tuner.channels()[i].clone())).collect();
+        let jobs = jobs
+            .into_iter()
+            .map(|i| (i, tuner.channels()[i].clone()))
+            .collect();
         health::spawn_checker(jobs, DEFAULT_USER_AGENT, move |r| check_tx.send(r).is_ok());
     } else {
         drop(check_tx);
@@ -215,6 +236,9 @@ async fn run(args: Args) -> Result<()> {
         typing: false,
         query: String::new(),
         picker: None,
+        tracks: Vec::new(),
+        hinted_seq: 0,
+        hint_until: None,
     };
     let fx = app.tuner.start();
     app.apply(fx).await?;
@@ -277,6 +301,7 @@ async fn run(args: Args) -> Result<()> {
                     app.osd_h = h;
                     app.redraw().await?;
                 }
+                Some(Event::Tracks(tracks)) => app.on_tracks(tracks).await?,
             },
             res = checks.recv(), if checks_open => match res {
                 Some(r) => app.on_check(r),
@@ -294,6 +319,10 @@ async fn run(args: Args) -> Result<()> {
                 if app.view_dirty || (app.panel.is_some() && checks_open) {
                     app.view_dirty = false;
                     app.refresh_panel().await?;
+                }
+                if app.hint_until.is_some_and(|t| Instant::now() >= t) {
+                    app.hint_until = None;
+                    app.player.remove_overlay(HINT_OVERLAY_ID).await?;
                 }
                 if last_save.elapsed() > Duration::from_secs(20) {
                     app.health.save_if_dirty();
@@ -367,6 +396,12 @@ struct App {
     query: String,
     /// The country / language chooser, when open (inside the channel list).
     picker: Option<Picker>,
+    /// Audio and subtitle tracks of the current stream.
+    tracks: Vec<Track>,
+    /// `tune_seq` of the stream whose language hint was shown.
+    hinted_seq: u64,
+    /// When to hide the language hint.
+    hint_until: Option<Instant>,
 }
 
 /// What a letter key does when not typing a search.
@@ -381,6 +416,8 @@ fn shortcut(c: &str) -> Option<&'static str> {
         "h" | "?" => "help",
         "/" => "search",
         "c" => "regions",
+        "a" => "audio",
+        "t" => "subtitles",
         "f" => "fullscreen",
         "m" => "mute",
         "p" | "space" => "pause",
@@ -415,6 +452,96 @@ impl App {
         }
     }
 
+    /// The track list changed. The first time a channel turns out to offer
+    /// other languages or subtitles, say so (and how to pick them).
+    async fn on_tracks(&mut self, tracks: Vec<Track>) -> Result<()> {
+        self.tracks = tracks;
+        let audio = self
+            .tracks
+            .iter()
+            .filter(|t| t.kind == TrackKind::Audio)
+            .count();
+        let subs = self
+            .tracks
+            .iter()
+            .filter(|t| t.kind == TrackKind::Sub)
+            .count();
+        if (audio < 2 && subs == 0) || self.hinted_seq == self.tune_seq {
+            return Ok(());
+        }
+        self.hinted_seq = self.tune_seq;
+        let mut parts = Vec::new();
+        if audio > 1 {
+            parts.push(format!("{audio} audio languages  (a)"));
+        }
+        if subs > 0 {
+            parts.push(format!(
+                "{subs} subtitle{}  (t)",
+                if subs == 1 { "" } else { "s" }
+            ));
+        }
+        let ass = panel::hint(&format!("This channel has {}", parts.join("   ·   ")));
+        self.player.overlay(HINT_OVERLAY_ID, &ass, panel::H).await?;
+        self.hint_until = Some(Instant::now() + Duration::from_millis(HINT_MS));
+        Ok(())
+    }
+
+    /// `a` / `t`: switches to the next audio track, or the next subtitles
+    /// (then off), and remembers the language for other channels.
+    async fn cycle_track(&mut self, kind: TrackKind) -> Result<()> {
+        let list: Vec<Track> = self
+            .tracks
+            .iter()
+            .filter(|t| t.kind == kind)
+            .cloned()
+            .collect();
+        let audio = kind == TrackKind::Audio;
+        if (audio && list.len() < 2) || (!audio && list.is_empty()) {
+            let msg = if audio {
+                "This channel has a single audio language"
+            } else {
+                "This channel has no subtitles"
+            };
+            return self.player.show_text(msg, 2500).await;
+        }
+        let pos = list.iter().position(|t| t.selected);
+        // Subtitles cycle through "off" too (position None).
+        let next = match (audio, pos) {
+            (true, p) => Some((p.map_or(0, |p| p + 1)) % list.len()),
+            (false, None) => Some(0),
+            (false, Some(p)) => (p + 1 < list.len()).then_some(p + 1),
+        };
+        let (audio_pref, sub_pref) = self.tuner.track_prefs();
+        let text = match next {
+            Some(i) => {
+                let t = &list[i];
+                let lang = (!t.lang.is_empty()).then(|| t.lang.clone());
+                let prop = if audio { "aid" } else { "sid" };
+                self.player.set_property(prop, json!(t.id)).await?;
+                let fx = if audio {
+                    self.tuner.set_track_prefs(lang.or(audio_pref), sub_pref)
+                } else {
+                    self.tuner.set_track_prefs(audio_pref, lang)
+                };
+                self.apply(fx).await?;
+                let what = if audio { "Audio" } else { "Subtitles" };
+                format!("{what}: {}   ({}/{})", t.label(), i + 1, list.len())
+            }
+            None => {
+                self.player.set_property("sid", json!("no")).await?;
+                let fx = self.tuner.set_track_prefs(audio_pref, None);
+                self.apply(fx).await?;
+                "Subtitles: off".to_string()
+            }
+        };
+        // Update our copy now; mpv's track-list event follows.
+        let chosen = next.map(|i| list[i].id);
+        for t in self.tracks.iter_mut().filter(|t| t.kind == kind) {
+            t.selected = Some(t.id) == chosen;
+        }
+        self.player.show_text(&text, 3000).await
+    }
+
     /// The current stream failed: hide it and quietly move on.
     async fn on_playback_failed(&mut self, error: &str) -> Result<()> {
         let cur = self.tuner.current();
@@ -439,7 +566,10 @@ impl App {
 
     fn check_status(&self) -> Option<String> {
         (self.check_done < self.check_total).then(|| {
-            format!("checking channels {}%", self.check_done * 100 / self.check_total.max(1))
+            format!(
+                "checking channels {}%",
+                self.check_done * 100 / self.check_total.max(1)
+            )
         })
     }
 
@@ -466,6 +596,8 @@ impl App {
             "regions" => return self.open_picker().await,
             "fullscreen" => return self.player.command(json!(["cycle", "fullscreen"])).await,
             "mute" => return self.player.command(json!(["cycle", "mute"])).await,
+            "audio" => return self.cycle_track(TrackKind::Audio).await,
+            "subtitles" => return self.cycle_track(TrackKind::Sub).await,
             "pause" => return self.player.command(json!(["cycle", "pause"])).await,
             "quit" => return self.player.command(json!(["quit"])).await,
             _ => {}
@@ -499,7 +631,9 @@ impl App {
 
     /// Keys while the channel panel is open.
     async fn panel_key(&mut self, name: &str, arg: Option<&str>) -> Result<()> {
-        let Some(panel) = self.panel.as_mut() else { return Ok(()) };
+        let Some(panel) = self.panel.as_mut() else {
+            return Ok(());
+        };
         let b = &mut panel.browser;
         match name {
             "up" => b.move_by(-1),
@@ -509,7 +643,11 @@ impl App {
             "home" => b.home(),
             "end" => b.end(),
             "wheel-up" | "wheel-down" => {
-                b.scroll_by(if name == "wheel-up" { -WHEEL_ROWS } else { WHEEL_ROWS });
+                b.scroll_by(if name == "wheel-up" {
+                    -WHEEL_ROWS
+                } else {
+                    WHEEL_ROWS
+                });
                 self.hover_select();
             }
             "back" | "list" => return self.close_panel().await,
@@ -559,13 +697,21 @@ impl App {
 
     /// Ticks / unticks the selected country or language; applies at once.
     async fn toggle_region(&mut self) -> Result<()> {
-        let Some(picker) = self.picker.as_ref() else { return Ok(()) };
+        let Some(picker) = self.picker.as_ref() else {
+            return Ok(());
+        };
         if picker.clear_selected() {
             return self.clear_regions().await;
         }
-        let Some(name) = picker.selected_name().map(str::to_string) else { return Ok(()) };
+        let Some(name) = picker.selected_name().map(str::to_string) else {
+            return Ok(());
+        };
         let (mut countries, mut languages) = self.tuner.regions();
-        let list = if picker.tab == PickerTab::Countries { &mut countries } else { &mut languages };
+        let list = if picker.tab == PickerTab::Countries {
+            &mut countries
+        } else {
+            &mut languages
+        };
         match list.iter().position(|x| *x == name) {
             Some(i) => {
                 list.remove(i);
@@ -594,7 +740,9 @@ impl App {
     /// Keys while choosing countries / languages.
     async fn picker_key(&mut self, name: &str, arg: Option<&str>) -> Result<()> {
         let mouse = self.mouse_canvas();
-        let Some(picker) = self.picker.as_mut() else { return Ok(()) };
+        let Some(picker) = self.picker.as_mut() else {
+            return Ok(());
+        };
         let b = &mut picker.browser;
         match (name, arg) {
             ("up", _) => b.move_by(-1),
@@ -604,7 +752,11 @@ impl App {
             ("home", _) => b.home(),
             ("end", _) => b.end(),
             ("wheel-up" | "wheel-down", _) => {
-                b.scroll_by(if name == "wheel-up" { -WHEEL_ROWS } else { WHEEL_ROWS });
+                b.scroll_by(if name == "wheel-up" {
+                    -WHEEL_ROWS
+                } else {
+                    WHEEL_ROWS
+                });
                 self.hover_select();
             }
             ("ok", _) => return self.toggle_region().await,
@@ -679,7 +831,11 @@ impl App {
                 return self.close_panel().await;
             }
             // Moving in the list finishes typing.
-            ("up" | "down" | "page-up" | "page-down" | "home" | "end" | "wheel-up" | "wheel-down" | "click", _) => {
+            (
+                "up" | "down" | "page-up" | "page-down" | "home" | "end" | "wheel-up"
+                | "wheel-down" | "click",
+                _,
+            ) => {
                 self.typing = false;
                 return self.panel_key(name, arg).await;
             }
@@ -694,8 +850,12 @@ impl App {
     }
 
     async fn click(&mut self) -> Result<()> {
-        let Some((x, y)) = self.mouse_canvas() else { return Ok(()) };
-        let Some(panel) = self.panel.as_mut() else { return Ok(()) };
+        let Some((x, y)) = self.mouse_canvas() else {
+            return Ok(());
+        };
+        let Some(panel) = self.panel.as_mut() else {
+            return Ok(());
+        };
         match panel.hit(x, y) {
             Hit::Row(row) => {
                 if let Some(ch) = panel.browser.select_row(row) {
@@ -715,7 +875,9 @@ impl App {
 
     /// Selects the row under the mouse. Returns true if the selection changed.
     fn hover_select(&mut self) -> bool {
-        let Some((x, y)) = self.mouse_canvas() else { return false };
+        let Some((x, y)) = self.mouse_canvas() else {
+            return false;
+        };
         if let Some(picker) = self.picker.as_mut() {
             return match picker.hit(x, y) {
                 Hit::Row(row) => {
@@ -726,7 +888,9 @@ impl App {
                 _ => false,
             };
         }
-        let Some(panel) = self.panel.as_mut() else { return false };
+        let Some(panel) = self.panel.as_mut() else {
+            return false;
+        };
         match panel.hit(x, y) {
             Hit::Row(row) => {
                 let before = panel.browser.selected_channel();
@@ -746,8 +910,12 @@ impl App {
     async fn open_panel(&mut self) -> Result<()> {
         self.panel = Some(Panel::new(&self.tuner));
         // Keep channel banners from covering the panel, keep the cursor visible.
-        self.player.set_property("osd-align-x", json!("right")).await?;
-        self.player.set_property("cursor-autohide", json!("no")).await?;
+        self.player
+            .set_property("osd-align-x", json!("right"))
+            .await?;
+        self.player
+            .set_property("cursor-autohide", json!("no"))
+            .await?;
         self.player.show_text("", 1).await?;
         self.hover_select();
         self.redraw().await
@@ -758,8 +926,12 @@ impl App {
         self.typing = false;
         self.picker = None;
         self.player.remove_overlay(PANEL_OVERLAY_ID).await?;
-        self.player.set_property("osd-align-x", json!("left")).await?;
-        self.player.set_property("cursor-autohide", json!(1000)).await
+        self.player
+            .set_property("osd-align-x", json!("left"))
+            .await?;
+        self.player
+            .set_property("cursor-autohide", json!(1000))
+            .await
     }
 
     async fn redraw(&mut self) -> Result<()> {
@@ -770,7 +942,9 @@ impl App {
         if let Some(panel) = &self.panel {
             let typing = self.typing.then_some(self.query.as_str());
             let ass = panel.render(&self.tuner, self.check_status().as_deref(), typing);
-            self.player.overlay(PANEL_OVERLAY_ID, &ass, panel::H).await?;
+            self.player
+                .overlay(PANEL_OVERLAY_ID, &ass, panel::H)
+                .await?;
         }
         Ok(())
     }
@@ -787,6 +961,16 @@ impl App {
                 Effect::Tune(idx) => {
                     self.tune_seq += 1;
                     self.current_loaded = false;
+                    self.tracks.clear();
+                    if self.hint_until.take().is_some() {
+                        self.player.remove_overlay(HINT_OVERLAY_ID).await?;
+                    }
+                    let (audio, subs) = self.tuner.track_prefs();
+                    let codes =
+                        |l: Option<String>| l.map(|l| language_codes(&l)).unwrap_or_default();
+                    self.player
+                        .set_track_prefs(&codes(audio), &codes(subs))
+                        .await?;
                     let ch = &self.tuner.channels()[idx];
                     self.player
                         .play(

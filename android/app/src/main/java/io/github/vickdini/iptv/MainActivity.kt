@@ -22,7 +22,12 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import java.util.Locale
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -74,6 +79,9 @@ class MainActivity : AppCompatActivity() {
     /** Set while changing the search box from code (not typing). */
     private var settingSearch = false
     private lateinit var adapter: ChannelAdapter
+    private lateinit var tracksButton: View
+    /** Tune [currentSeq] whose language hint was shown. */
+    private var hintedSeq = -1
 
     private val handler = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
@@ -141,6 +149,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.groupNext).setOnClickListener { panelAction("group-next") }
         findViewById<View>(R.id.favOnly).setOnClickListener { panelAction("fav-only") }
         findViewById<View>(R.id.regions).setOnClickListener { chooseRegions() }
+        tracksButton = findViewById<View>(R.id.tracks).apply { setOnClickListener { chooseTracks() } }
         findViewById<View>(R.id.closePanel).setOnClickListener { hidePanel() }
         // Phones and tablets play full screen with the back gesture hidden, so
         // leaving isn't obvious: offer an exit button. TV remotes have Back/Home.
@@ -169,6 +178,8 @@ class MainActivity : AppCompatActivity() {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) Core.playbackStarted(currentSeq)
             }
+
+            override fun onTracksChanged(tracks: Tracks) = onTracks()
         })
 
         setupCast()
@@ -266,6 +277,7 @@ class MainActivity : AppCompatActivity() {
         val item = MediaItem.Builder().setUri(url).apply {
             if (forceHls || url.contains(".m3u8", ignoreCase = true)) setMimeType(MimeTypes.APPLICATION_M3U8)
         }.build()
+        applyTrackPrefs()
         player.setMediaSource(DefaultMediaSourceFactory(http).createMediaSource(item))
         player.prepare()
         player.playWhenReady = true
@@ -446,6 +458,8 @@ class MainActivity : AppCompatActivity() {
                 if (panelOpen) hidePanel() else showPanel()
             KeyEvent.KEYCODE_ESCAPE -> if (panelOpen) hidePanel() else return false
             KeyEvent.KEYCODE_SEARCH, KeyEvent.KEYCODE_SLASH -> startSearch()
+            KeyEvent.KEYCODE_MEDIA_AUDIO_TRACK, KeyEvent.KEYCODE_A -> nextTrack(audio = true)
+            KeyEvent.KEYCODE_CAPTIONS, KeyEvent.KEYCODE_T -> nextTrack(audio = false)
             // With the list open, Up/Down/OK move through it and pick a channel.
             KeyEvent.KEYCODE_DPAD_UP -> if (panelOpen) return false else tvAction("up")
             KeyEvent.KEYCODE_DPAD_DOWN -> if (panelOpen) return false else tvAction("down")
@@ -457,6 +471,140 @@ class MainActivity : AppCompatActivity() {
             else -> return false
         }
         return true
+    }
+
+    // --- audio language & subtitles ----------------------------------------------------
+
+    /** One audio or subtitle track of the current stream. */
+    private class Track(val group: Tracks.Group, val index: Int) {
+        val format: Format get() = group.getTrackFormat(index)
+        val selected get() = group.isTrackSelected(index)
+        val language: String? get() = format.language?.takeIf { it.isNotBlank() && it != C.LANGUAGE_UNDETERMINED }
+
+        /** The broadcaster's name for it, else the language's name (in the phone's language). */
+        fun label(n: Int): String {
+            format.label?.takeIf { it.isNotBlank() }?.let { return it }
+            val lang = language ?: return "#$n"
+            val name = Locale.forLanguageTag(lang).getDisplayLanguage(Locale.getDefault())
+            return if (name.isBlank() || name.equals(lang, ignoreCase = true)) lang.uppercase() else
+                name.replaceFirstChar { it.titlecase(Locale.getDefault()) }
+        }
+    }
+
+    private fun tracksOf(type: Int): List<Track> =
+        player.currentTracks.groups.filter { it.type == type }.flatMap { g ->
+            (0 until g.length).filter { g.isTrackSupported(it) }.map { Track(g, it) }
+        }
+
+    /** Before each stream: the remembered languages, no leftover manual choice. */
+    private fun applyTrackPrefs() {
+        val prefs = JSONObject(Core.trackPrefs())
+        val audio = prefs.optString("audio").takeIf { !prefs.isNull("audio") && it.isNotEmpty() }
+        val subs = prefs.optString("subtitles").takeIf { !prefs.isNull("subtitles") && it.isNotEmpty() }
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .clearOverrides()
+            .setPreferredAudioLanguage(audio)
+            .setPreferredTextLanguage(subs)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, subs == null)
+            .build()
+        tracksButton.visibility = View.GONE
+    }
+
+    /** The stream's tracks are known: offer the choice when there is one. */
+    private fun onTracks() {
+        val audio = tracksOf(C.TRACK_TYPE_AUDIO).size
+        val subs = tracksOf(C.TRACK_TYPE_TEXT).size
+        val choice = audio > 1 || subs > 0
+        tracksButton.visibility = if (choice) View.VISIBLE else View.GONE
+        if (!choice || hintedSeq == currentSeq || casting) return
+        hintedSeq = currentSeq
+        val parts = listOfNotNull(
+            if (audio > 1) getString(R.string.tracks_hint_audio, audio) else null,
+            if (subs > 0) getString(R.string.tracks_hint_subs, subs) else null,
+        ).joinToString(" · ")
+        // Wait for the channel banner to go first.
+        handler.postDelayed({
+            if (hintedSeq == currentSeq && panel.visibility != View.VISIBLE)
+                showOsd(getString(if (isTv()) R.string.tracks_hint_tv else R.string.tracks_hint, parts), 5000)
+        }, 3000)
+    }
+
+    /** Menu: audio language or subtitles (straight to the one there is). */
+    private fun chooseTracks() {
+        val audio = tracksOf(C.TRACK_TYPE_AUDIO)
+        val subs = tracksOf(C.TRACK_TYPE_TEXT)
+        when {
+            audio.size > 1 && subs.isNotEmpty() -> {
+                val current = { list: List<Track>, off: String ->
+                    list.indexOfFirst { it.selected }.let { if (it < 0) off else list[it].label(it + 1) }
+                }
+                val items = arrayOf(
+                    "${getString(R.string.tracks_audio)}: ${current(audio, "—")}",
+                    "${getString(R.string.tracks_subtitles)}: ${current(subs, getString(R.string.tracks_off))}",
+                )
+                AlertDialog.Builder(this).setTitle(R.string.tracks)
+                    .setItems(items) { _, which -> pickTrack(audio = which == 0) }
+                    .show()
+            }
+            audio.size > 1 -> pickTrack(audio = true)
+            subs.isNotEmpty() -> pickTrack(audio = false)
+            else -> showOsd(getString(R.string.tracks_none), 2500)
+        }
+    }
+
+    private fun pickTrack(audio: Boolean) {
+        val list = tracksOf(if (audio) C.TRACK_TYPE_AUDIO else C.TRACK_TYPE_TEXT)
+        // Subtitles start with "Off".
+        val labels = (if (audio) emptyList() else listOf(getString(R.string.tracks_off))) +
+            list.mapIndexed { i, t -> t.label(i + 1) }
+        val sel = list.indexOfFirst { it.selected }
+        val checked = if (audio) sel else sel + 1
+        AlertDialog.Builder(this)
+            .setTitle(if (audio) R.string.tracks_audio else R.string.tracks_subtitles)
+            .setSingleChoiceItems(labels.toTypedArray(), checked) { d, which ->
+                d.dismiss()
+                selectTrack(audio, if (audio) list[which] else list.getOrNull(which - 1))
+            }
+            .show()
+    }
+
+    /** Audio / CC remote keys: the next audio track, or the next subtitles then off. */
+    private fun nextTrack(audio: Boolean) {
+        val list = tracksOf(if (audio) C.TRACK_TYPE_AUDIO else C.TRACK_TYPE_TEXT)
+        if ((audio && list.size < 2) || (!audio && list.isEmpty())) {
+            showOsd(getString(R.string.tracks_none), 2500)
+            return
+        }
+        val pos = list.indexOfFirst { it.selected }
+        val next = if (audio) list[(pos + 1) % list.size] else list.getOrNull(pos + 1)
+        selectTrack(audio, next)
+    }
+
+    /** Plays [track] (null: subtitles off) and remembers its language for other channels. */
+    private fun selectTrack(audio: Boolean, track: Track?) {
+        val type = if (audio) C.TRACK_TYPE_AUDIO else C.TRACK_TYPE_TEXT
+        val b = player.trackSelectionParameters.buildUpon().clearOverridesOfType(type)
+        if (track == null) {
+            b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+        } else {
+            b.setTrackTypeDisabled(type, false)
+                .setOverrideForType(TrackSelectionOverride(track.group.mediaTrackGroup, track.index))
+            if (audio) b.setPreferredAudioLanguage(track.language) else b.setPreferredTextLanguage(track.language)
+        }
+        player.trackSelectionParameters = b.build()
+
+        val prefs = JSONObject(Core.trackPrefs())
+        fun pref(key: String) = if (prefs.isNull(key)) null else prefs.optString(key)
+        if (audio) Core.setTrackPrefs(track?.language ?: pref("audio"), pref("subtitles"))
+        else Core.setTrackPrefs(pref("audio"), track?.language)
+
+        val list = tracksOf(type)
+        val what = getString(if (audio) R.string.tracks_audio else R.string.tracks_subtitles)
+        val text = if (track == null) "$what: ${getString(R.string.tracks_off)}" else {
+            val i = list.indexOfFirst { it.group == track.group && it.index == track.index }
+            "$what: ${track.label(i + 1)}   (${i + 1}/${list.size})"
+        }
+        showOsd(text, 2500)
     }
 
     // --- countries & languages ------------------------------------------------------

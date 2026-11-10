@@ -14,7 +14,9 @@ var ROW_H = 60;
 var UI_HTML = [
     '<object id="av-player" type="application/avplayer"></object>',
     '<video id="html-player" autoplay playsinline></video>',
+    '<div id="subs" class="subs hidden"><span id="subs-text"></span></div>',
     '<div id="osd" class="osd hidden"></div>',
+    '<div id="tracks" class="tracks hidden"></div>',
     '<div id="status" class="status">Loading channels…</div>',
     '<div id="panel" class="panel hidden">',
     '  <div class="panel-head">',
@@ -36,6 +38,8 @@ var HELP = [
     'INFO                   channel info',
     'Red                    favorite      Green  favorites only',
     'Blue                   search channels by name',
+    'Yellow                 audio language & subtitles',
+    '                       (or this help if there is no choice)',
     'Yellow (in the list)   countries & languages',
     'Back                   close list / exit',
     '',
@@ -53,7 +57,9 @@ var digitsPending = false;
 var currentSeq = 0;
 var currentTune = null;
 var lastKey = 0;
-var timers = { osd: 0, digit: 0 };
+var timers = { osd: 0, digit: 0, subs: 0, tracks: 0 };
+/** The audio & subtitles menu while open: `{row}` (0 audio, 1 subtitles). */
+var tracksMenu = null;
 var checks = { total: 0, done: 0, changed: false, stop: null };
 var panel = { open: false, items: new Uint32Array(0), favs: new Set(), current: -1, sel: 0, scroll: 0, rows: 0, els: [] };
 
@@ -121,6 +127,7 @@ function boot() {
     }
     if (!document.getElementById('osd')) document.body.innerHTML = UI_HTML;
     player = createPlayer();
+    player.onSubtitle = showSubtitle;
     keyOf = setupKeys();
     document.addEventListener('keydown', onKey);
     $('rows').addEventListener('click', onRowClick);
@@ -277,9 +284,13 @@ function tune(e) {
     currentTune = e;
     currentSeq = e.seq;
     var seq = e.seq;
+    closeTracks();
+    hideSubtitle();
     player.play(e, function () {
         var idx = core.playbackStarted(seq);
         if (idx >= 0) health.record(urls[idx], true);
+        // Track lists fill in once the stream runs.
+        setTimeout(function () { if (seq === currentSeq) onTracks(seq); }, 1500);
     }, function () {
         if (seq !== currentSeq) return;
         health.record(urls[core.current()], false);
@@ -556,6 +567,160 @@ function onRowClick(ev) {
     }
 }
 
+/* ------------------------------------------- audio language & subtitles */
+
+function trackLabel(t, i) {
+    if (t.label) return t.label;
+    if (t.lang) return core.languageName(t.lang);
+    return 'Track ' + (i + 1);
+}
+
+function prefs() { return JSON.parse(core.trackPrefs()); }
+
+/** The stream's tracks are known: use the remembered languages, and say
+ *  when there is a choice. */
+function onTracks(seq) {
+    var t = player.tracks();
+    var p = prefs();
+    if (p.audio) {
+        var a = t.audio.filter(function (x) { return core.sameLanguage(x.lang, p.audio); })[0];
+        if (a && !a.selected) player.select('audio', a.id);
+    }
+    if (p.subtitles) {
+        var s = t.subs.filter(function (x) { return core.sameLanguage(x.lang, p.subtitles); })[0];
+        if (s) player.select('subs', s.id);
+    }
+    var parts = [];
+    if (t.audio.length > 1) parts.push(t.audio.length + ' audio languages');
+    if (t.subs.length) parts.push(t.subs.length + ' subtitles');
+    if (parts.length && !panel.open && seq === currentSeq) {
+        showOsd('This channel has ' + parts.join(' · ') + '\nYellow: choose', 5000);
+    }
+}
+
+function showSubtitle(text, ms) {
+    // Drop markup such as <i> or {\an8}.
+    var clean = text.replace(/<[^>]*>/g, '').replace(/\{[^}]*\}/g, '').trim();
+    if (!clean) { hideSubtitle(); return; }
+    $('subs-text').textContent = clean;
+    $('subs').classList.remove('hidden');
+    clearTimeout(timers.subs);
+    timers.subs = setTimeout(hideSubtitle, ms > 0 ? ms : 4000);
+}
+
+function hideSubtitle() {
+    clearTimeout(timers.subs);
+    $('subs').classList.add('hidden');
+}
+
+/** Yellow outside the list: the menu, or help when there is no choice. */
+function openTracks() {
+    var t = player.tracks();
+    if (t.audio.length < 2 && !t.subs.length) { showOsd(HELP, 8000); return; }
+    tracksMenu = { row: t.audio.length > 1 ? 0 : 1 };
+    $('osd').classList.add('hidden');
+    renderTracks();
+}
+
+function closeTracks() {
+    tracksMenu = null;
+    clearTimeout(timers.tracks);
+    $('tracks').classList.add('hidden');
+}
+
+function renderTracks() {
+    var t = player.tracks();
+    var html = '<div class="title">Audio &amp; subtitles &nbsp; ▲▼ ◀▶ &nbsp; Back: close</div>';
+    function row(n, name, value) {
+        html += '<div class="item' + (tracksMenu.row === n ? ' selected' : '') + '"><span>' + name +
+            '</span><span class="value">◀ ' + escapeHtml(value) + ' ▶</span></div>';
+    }
+    function current(list, off) {
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].selected) return trackLabel(list[i], i) + '  (' + (i + 1) + '/' + list.length + ')';
+        }
+        return off;
+    }
+    if (t.audio.length > 1) row(0, 'Audio', current(t.audio, '—'));
+    if (t.subs.length) row(1, 'Subtitles', current(t.subs, 'Off'));
+    var el = $('tracks');
+    el.innerHTML = html;
+    el.classList.remove('hidden');
+    clearTimeout(timers.tracks);
+    timers.tracks = setTimeout(closeTracks, 10000);
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+}
+
+/** Next (delta 1) or previous audio track / subtitles (with "off"); remembers
+ *  the language. Returns the new label, or null if there is no choice. */
+function stepTrack(kind, delta) {
+    var t = player.tracks();
+    var list = kind === 'audio' ? t.audio : t.subs;
+    if (kind === 'audio' ? list.length < 2 : !list.length) return null;
+    var pos = -1;
+    for (var i = 0; i < list.length; i++) if (list[i].selected) pos = i;
+    var p = prefs();
+    var label;
+    if (kind === 'audio') {
+        var a = ((pos < 0 ? 0 : pos) + delta + list.length) % list.length;
+        player.select('audio', list[a].id);
+        perform(core.setTrackPrefs(list[a].lang || p.audio, p.subtitles));
+        label = trackLabel(list[a], a) + '  (' + (a + 1) + '/' + list.length + ')';
+    } else {
+        // Positions: -1 = off, then each track.
+        var n = list.length + 1;
+        var s = ((pos + 1 + delta + n) % n) - 1;
+        if (s < 0) {
+            player.select('subs', null);
+            hideSubtitle();
+            perform(core.setTrackPrefs(p.audio, null));
+            label = 'Off';
+        } else {
+            player.select('subs', list[s].id);
+            perform(core.setTrackPrefs(p.audio, list[s].lang || null));
+            label = trackLabel(list[s], s) + '  (' + (s + 1) + '/' + list.length + ')';
+        }
+    }
+    return label;
+}
+
+/** Audio / subtitle remote keys: the next one, shown briefly. */
+function quickTrack(kind) {
+    var label = stepTrack(kind, 1);
+    var what = kind === 'audio' ? 'Audio: ' : 'Subtitles: ';
+    if (label === null) {
+        showOsd(kind === 'audio' ? 'This channel has a single audio language' : 'This channel has no subtitles', 2500);
+    } else {
+        showOsd(what + label, 2500);
+    }
+}
+
+function tracksKey(key) {
+    var t = player.tracks();
+    var rows = [];
+    if (t.audio.length > 1) rows.push(0);
+    if (t.subs.length) rows.push(1);
+    switch (key) {
+        case 'up': case 'down':
+            if (rows.length > 1) tracksMenu.row = tracksMenu.row === 0 ? 1 : 0;
+            break;
+        case 'left': case 'right': case 'enter':
+            stepTrack(tracksMenu.row === 0 ? 'audio' : 'subs', key === 'left' ? -1 : 1);
+            break;
+        default:
+            closeTracks();
+            return;
+    }
+    // The player takes a moment to switch; show the result after it.
+    renderTracks();
+    setTimeout(function () { if (tracksMenu) renderTracks(); }, 400);
+}
+
 /* ------------------------------------------------------------------ input */
 
 function onKey(ev) {
@@ -580,12 +745,22 @@ function onKey(ev) {
         else if (k.key === 'enter' && retryOnEnter) { retryOnEnter = false; load(); }
         return;
     }
-    if (k.key === 'digit') { tvAction('digit', k.digit); return; }
+    if (k.key === 'digit') { closeTracks(); tvAction('digit', k.digit); return; }
+    if (k.key === 'audio' || k.key === 'subtitles') {
+        quickTrack(k.key === 'audio' ? 'audio' : 'subs');
+        if (tracksMenu) renderTracks();
+        return;
+    }
+    if (tracksMenu) {
+        if (k.key === 'yellow' || k.key === 'back') { closeTracks(); return; }
+        if (['up', 'down', 'left', 'right', 'enter'].indexOf(k.key) >= 0) { tracksKey(k.key); return; }
+        closeTracks();
+    }
     if (k.key === 'yellow') {
-        // In the list: countries & languages. Otherwise: help.
+        // In the list: countries & languages. Otherwise: audio & subtitles.
         if (picker) closePicker();
         else if (panel.open) openPicker();
-        else showOsd(HELP, 8000);
+        else openTracks();
         return;
     }
 

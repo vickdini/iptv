@@ -52,6 +52,12 @@ object Core {
     /** Shows only channels from these countries or in these languages (JSON arrays); effects. */
     @JvmStatic external fun setRegions(countries: String, languages: String): String
 
+    /** Preferred track languages: `{"audio": code|null, "subtitles": code|null}`. */
+    @JvmStatic external fun trackPrefs(): String
+
+    /** Remembers the audio / subtitle language picked (null: stream default / subtitles off). */
+    @JvmStatic external fun setTrackPrefs(audio: String?, subtitles: String?): String
+
     /** Channel list header: `{"title","status","current"}`. */
     @JvmStatic external fun listInfo(): String
 

@@ -8,6 +8,7 @@
 //!   [`Action`]s into [`Effect`]s the front-end must perform.
 
 pub mod browser;
+pub mod lang;
 pub mod m3u;
 pub mod tuner;
 

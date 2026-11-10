@@ -104,6 +104,13 @@ pub struct SavedState {
     pub countries: Vec<String>,
     #[serde(default)]
     pub languages: Vec<String>,
+    /// Preferred audio language (a track language code, e.g. "it"), used on
+    /// every channel that offers it. None: the stream's default.
+    #[serde(default)]
+    pub audio_language: Option<String>,
+    /// Preferred subtitle language; None: subtitles off.
+    #[serde(default)]
+    pub subtitle_language: Option<String>,
 }
 
 pub struct Tuner {
@@ -128,6 +135,8 @@ pub struct Tuner {
     /// or in any of these languages (both empty: no restriction).
     region_countries: HashSet<String>,
     region_languages: HashSet<String>,
+    audio_language: Option<String>,
+    subtitle_language: Option<String>,
 }
 
 impl Tuner {
@@ -166,6 +175,8 @@ impl Tuner {
             favorites: state.favorites.iter().cloned().collect(),
             region_countries: state.countries.iter().cloned().collect(),
             region_languages: state.languages.iter().cloned().collect(),
+            audio_language: state.audio_language.clone(),
+            subtitle_language: state.subtitle_language.clone(),
         })
     }
 
@@ -198,6 +209,8 @@ impl Tuner {
             favorites,
             countries,
             languages,
+            audio_language: self.audio_language.clone(),
+            subtitle_language: self.subtitle_language.clone(),
         }
     }
 
@@ -248,7 +261,11 @@ impl Tuner {
 
     /// Selects a group by (case-insensitive) name. Returns false if unknown.
     pub fn set_group(&mut self, name: &str) -> bool {
-        match self.groups.iter().position(|g| g.eq_ignore_ascii_case(name)) {
+        match self
+            .groups
+            .iter()
+            .position(|g| g.eq_ignore_ascii_case(name))
+        {
             Some(g) => {
                 self.filter = Filter::Group(g);
                 if !self.matches(self.current) {
@@ -302,9 +319,7 @@ impl Tuner {
                 _ => vec![self.osd("No previous channel")],
             },
             Action::Info => vec![self.info()],
-            Action::NextGroup | Action::PrevGroup => {
-                self.cycle_group(action == Action::NextGroup)
-            }
+            Action::NextGroup | Action::PrevGroup => self.cycle_group(action == Action::NextGroup),
             Action::ToggleFavorite => self.toggle_favorite_at(self.current),
             Action::ToggleFavoritesOnly => {
                 if self.filter == Filter::Favorites {
@@ -312,12 +327,17 @@ impl Tuner {
                     return vec![self.osd(&self.view_title())];
                 }
                 if self.favorites.is_empty() {
-                    return vec![self.osd("No favorites yet — press 's' to add the current channel")];
+                    return vec![
+                        self.osd("No favorites yet — press 's' to add the current channel")
+                    ];
                 }
                 self.filter = Filter::Favorites;
                 self.enter_filter(self.view_title())
             }
-            Action::Help => vec![Effect::Osd { text: HELP.to_string(), ms: 8000 }],
+            Action::Help => vec![Effect::Osd {
+                text: HELP.to_string(),
+                ms: 8000,
+            }],
         }
     }
 
@@ -331,7 +351,9 @@ impl Tuner {
     }
 
     pub fn toggle_favorite_at(&mut self, idx: usize) -> Vec<Effect> {
-        let Some(ch) = self.channels.get(idx) else { return vec![] };
+        let Some(ch) = self.channels.get(idx) else {
+            return vec![];
+        };
         let url = ch.url.clone();
         let msg = if self.favorites.remove(&url) {
             format!("Removed from favorites: {}", ch.name)
@@ -352,7 +374,10 @@ impl Tuner {
     /// text ends the search. Doesn't change the channel being watched.
     pub fn set_search(&mut self, text: &str) {
         self.search_text = text.trim().to_string();
-        self.search_words = normalize(text).split_whitespace().map(str::to_string).collect();
+        self.search_words = normalize(text)
+            .split_whitespace()
+            .map(str::to_string)
+            .collect();
         if !self.search_words.is_empty() {
             self.filter = Filter::Search;
         } else if self.filter == Filter::Search {
@@ -378,6 +403,23 @@ impl Tuner {
         let mut fx = self.enter_filter(title);
         fx.push(Effect::Save);
         fx
+    }
+
+    /// Preferred audio and subtitle languages (track language codes);
+    /// subtitles None = off. Front-ends apply them to every channel.
+    pub fn track_prefs(&self) -> (Option<String>, Option<String>) {
+        (self.audio_language.clone(), self.subtitle_language.clone())
+    }
+
+    /// Remembers the audio / subtitle language the user picked.
+    pub fn set_track_prefs(
+        &mut self,
+        audio: Option<String>,
+        subtitles: Option<String>,
+    ) -> Vec<Effect> {
+        self.audio_language = audio.filter(|s| !s.is_empty());
+        self.subtitle_language = subtitles.filter(|s| !s.is_empty());
+        vec![Effect::Save]
     }
 
     /// The chosen countries and languages, sorted.
@@ -417,7 +459,8 @@ impl Tuner {
     }
 
     fn region_counts(&self, field: impl Fn(&Channel) -> &Vec<String>) -> Vec<(String, usize)> {
-        let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        let mut counts: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
         for (i, ch) in self.channels.iter().enumerate() {
             if self.dead[i] {
                 continue;
@@ -434,20 +477,29 @@ impl Tuner {
             return true;
         }
         let ch = &self.channels[idx];
-        ch.countries.iter().any(|c| self.region_countries.contains(c))
-            || ch.languages.iter().any(|l| self.region_languages.contains(l))
+        ch.countries
+            .iter()
+            .any(|c| self.region_countries.contains(c))
+            || ch
+                .languages
+                .iter()
+                .any(|l| self.region_languages.contains(l))
     }
 
     /// Channel indices Up/Down currently zap through, ascending.
     pub fn view(&self) -> Vec<usize> {
-        (0..self.channels.len()).filter(|&i| self.matches(i)).collect()
+        (0..self.channels.len())
+            .filter(|&i| self.matches(i))
+            .collect()
     }
 
     /// e.g. "All channels (7012)", "News (630)", "Favorites (3)", counting
     /// only channels not known to be dead.
     pub fn view_title(&self) -> String {
         let name = self.filter_name().unwrap_or_else(|| "All channels".into());
-        let count = (0..self.channels.len()).filter(|&i| self.matches(i)).count();
+        let count = (0..self.channels.len())
+            .filter(|&i| self.matches(i))
+            .count();
         format!("{name} ({count})")
     }
 
@@ -467,9 +519,15 @@ impl Tuner {
         }
         match filter {
             Filter::All => true,
-            Filter::Group(g) => self.channels[idx].groups.iter().any(|x| *x == self.groups[g]),
+            Filter::Group(g) => self.channels[idx]
+                .groups
+                .iter()
+                .any(|x| *x == self.groups[g]),
             Filter::Favorites => self.favorites.contains(&self.channels[idx].url),
-            Filter::Search => self.search_words.iter().all(|w| self.search_names[idx].contains(w.as_str())),
+            Filter::Search => self
+                .search_words
+                .iter()
+                .all(|w| self.search_names[idx].contains(w.as_str())),
         }
     }
 
@@ -477,7 +535,13 @@ impl Tuner {
     fn step_from(&self, from: usize, forward: bool) -> Option<usize> {
         let n = self.channels.len();
         (1..=n)
-            .map(|k| if forward { (from + k) % n } else { (from + n - k) % n })
+            .map(|k| {
+                if forward {
+                    (from + k) % n
+                } else {
+                    (from + n - k) % n
+                }
+            })
             .find(|&idx| self.matches(idx))
     }
 
@@ -534,7 +598,10 @@ impl Tuner {
         if let Some(f) = self.filter_name() {
             text.push_str(&format!("\n[{f}]"));
         }
-        Effect::Osd { text, ms: BANNER_MS }
+        Effect::Osd {
+            text,
+            ms: BANNER_MS,
+        }
     }
 
     fn info(&self) -> Effect {
@@ -552,10 +619,20 @@ impl Tuner {
             text.push_str(&format!("\nID: {id}"));
         }
         if !ch.countries.is_empty() || !ch.languages.is_empty() {
-            text.push_str(&format!("\nFrom: {}", [ch.countries.join(", "), ch.languages.join(", ")]
-                .iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join(" · ")));
+            text.push_str(&format!(
+                "\nFrom: {}",
+                [ch.countries.join(", "), ch.languages.join(", ")]
+                    .iter()
+                    .filter(|s| !s.is_empty())
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" · ")
+            ));
         }
-        text.push_str(&format!("\nView: {}", self.filter_name().unwrap_or("All channels".into())));
+        text.push_str(&format!(
+            "\nView: {}",
+            self.filter_name().unwrap_or("All channels".into())
+        ));
         if let Some(r) = self.region_label() {
             text.push_str(&format!("\nShowing: {r}"));
         }
@@ -576,13 +653,25 @@ impl Tuner {
         // Skip groups with no channel in the chosen countries / languages.
         let mut next = pos;
         for _ in 0..=n {
-            next = if forward { (next + 1) % (n + 1) } else { (next + n) % (n + 1) };
-            let candidate = if next == 0 { Filter::All } else { Filter::Group(next - 1) };
+            next = if forward {
+                (next + 1) % (n + 1)
+            } else {
+                (next + n) % (n + 1)
+            };
+            let candidate = if next == 0 {
+                Filter::All
+            } else {
+                Filter::Group(next - 1)
+            };
             if next == 0 || (0..self.channels.len()).any(|i| self.matches_with(i, candidate)) {
                 break;
             }
         }
-        self.filter = if next == 0 { Filter::All } else { Filter::Group(next - 1) };
+        self.filter = if next == 0 {
+            Filter::All
+        } else {
+            Filter::Group(next - 1)
+        };
         self.enter_filter(self.view_title())
     }
 
@@ -605,7 +694,10 @@ impl Tuner {
     }
 
     fn osd(&self, text: &str) -> Effect {
-        Effect::Osd { text: text.to_string(), ms: BANNER_MS }
+        Effect::Osd {
+            text: text.to_string(),
+            ms: BANNER_MS,
+        }
     }
 }
 
@@ -617,6 +709,7 @@ Left / Right                       volume      m  mute
 i  info      l / Tab  channel panel (wheel, click, Esc)
 / or Ctrl+F  search channels by name
 c            choose countries and languages
+a  audio language      t  subtitles   (when offered)
 g / G        next / previous group
 s  toggle favorite    S  favorites only
 f  fullscreen         q  quit";
@@ -717,7 +810,10 @@ mod tests {
     #[test]
     fn favorites_persist_and_filter() {
         let mut t = tuner(10);
-        assert!(!t.handle(Action::ToggleFavoritesOnly).iter().any(|e| matches!(e, Effect::Tune(_))));
+        assert!(!t
+            .handle(Action::ToggleFavoritesOnly)
+            .iter()
+            .any(|e| matches!(e, Effect::Tune(_))));
         t.handle(Action::ChannelUp);
         t.handle(Action::ChannelUp); // 2
         t.handle(Action::ToggleFavorite);
@@ -738,7 +834,10 @@ mod tests {
 
     #[test]
     fn restore_by_url_survives_reordering() {
-        let state = SavedState { last_url: Some("http://c3".into()), ..Default::default() };
+        let state = SavedState {
+            last_url: Some("http://c3".into()),
+            ..Default::default()
+        };
         let mut chs: Vec<Channel> = (0..5).map(|i| ch(&format!("c{i}"), "G")).collect();
         chs.reverse();
         let t = Tuner::new(chs, &state).unwrap();
@@ -781,7 +880,10 @@ mod tests {
 
     #[test]
     fn start_skips_dead_restored_channel() {
-        let state = SavedState { last_url: Some("http://c2".into()), ..Default::default() };
+        let state = SavedState {
+            last_url: Some("http://c2".into()),
+            ..Default::default()
+        };
         let chs = (0..5).map(|i| ch(&format!("c{i}"), "G")).collect();
         let mut t = Tuner::new(chs, &state).unwrap();
         t.set_dead(2, true);
@@ -790,7 +892,13 @@ mod tests {
 
     #[test]
     fn search_ignores_case_accents_and_word_order() {
-        let names = ["CNN International", "Télé Bretagne", "CNBC", "Canal+ Sport", "Euronews"];
+        let names = [
+            "CNN International",
+            "Télé Bretagne",
+            "CNBC",
+            "Canal+ Sport",
+            "Euronews",
+        ];
         let chs = names
             .iter()
             .map(|n| Channel {
@@ -852,7 +960,14 @@ mod tests {
     fn regions_show_channels_from_any_country_or_language() {
         let mut t = regional();
         assert_eq!(t.countries().len(), 5);
-        assert_eq!(t.languages(), vec![("English".into(), 2), ("Italian".into(), 2), ("Spanish".into(), 1)]);
+        assert_eq!(
+            t.languages(),
+            vec![
+                ("English".into(), 2),
+                ("Italian".into(), 2),
+                ("Spanish".into(), 1)
+            ]
+        );
 
         // Italy OR English.
         t.set_regions(vec!["Italy".into()], vec!["English".into()]);
@@ -888,8 +1003,22 @@ mod tests {
     }
 
     #[test]
+    fn track_prefs_persist() {
+        let mut t = tuner(3);
+        assert_eq!(t.track_prefs(), (None, None));
+        t.set_track_prefs(Some("it".into()), Some("en".into()));
+        let t2 = Tuner::new(t.channels().to_vec(), &t.state()).unwrap();
+        assert_eq!(t2.track_prefs(), (Some("it".into()), Some("en".into())));
+        t.set_track_prefs(Some(String::new()), None);
+        assert_eq!(t.track_prefs(), (None, None));
+    }
+
+    #[test]
     fn action_names() {
-        assert_eq!(Action::from_name("digit", Some("7")), Some(Action::Digit(7)));
+        assert_eq!(
+            Action::from_name("digit", Some("7")),
+            Some(Action::Digit(7))
+        );
         assert_eq!(Action::from_name("digit", Some("12")), None);
         assert_eq!(Action::from_name("nope", None), None);
     }

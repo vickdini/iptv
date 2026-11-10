@@ -31,13 +31,23 @@ pub struct Update {
 
 /// Parses "1.2.3" (optionally with a leading "v") into comparable numbers.
 pub fn parse_version(v: &str) -> Option<(u32, u32, u32)> {
-    let mut parts = v.trim().trim_start_matches('v').split('.').map(|p| p.parse::<u32>().ok());
+    let mut parts = v
+        .trim()
+        .trim_start_matches('v')
+        .split('.')
+        .map(|p| p.parse::<u32>().ok());
     Some((parts.next()??, parts.next()??, parts.next()??))
 }
 
 /// Finds the newest file named `{prefix}{version}{suffix}` in a
 /// SHA256SUMS listing, if it is newer than `current`.
-pub fn find_update(sums: &str, prefix: &str, suffix: &str, current: &str, base_url: &str) -> Option<Update> {
+pub fn find_update(
+    sums: &str,
+    prefix: &str,
+    suffix: &str,
+    current: &str,
+    base_url: &str,
+) -> Option<Update> {
     let current = parse_version(current)?;
     sums.lines()
         .filter_map(|line| {
@@ -46,8 +56,14 @@ pub fn find_update(sums: &str, prefix: &str, suffix: &str, current: &str, base_u
             let name = it.next()?.trim_start_matches('*');
             let version = name.strip_prefix(prefix)?.strip_suffix(suffix)?;
             let parsed = parse_version(version)?;
-            (sha.len() == 64 && sha.chars().all(|c| c.is_ascii_hexdigit()))
-                .then(|| (parsed, version.to_string(), name.to_string(), sha.to_ascii_lowercase()))
+            (sha.len() == 64 && sha.chars().all(|c| c.is_ascii_hexdigit())).then(|| {
+                (
+                    parsed,
+                    version.to_string(),
+                    name.to_string(),
+                    sha.to_ascii_lowercase(),
+                )
+            })
         })
         .filter(|(parsed, ..)| *parsed > current)
         .max_by_key(|(parsed, ..)| *parsed)
@@ -117,10 +133,18 @@ fn download_once(update: &Update, dest: &Path) -> Result<()> {
     }
     file.sync_all()?;
     drop(file);
-    let actual: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    let actual: String = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     if actual != update.sha256 {
         let _ = fs::remove_file(&tmp);
-        bail!("checksum mismatch for {} (expected {}, got {actual})", update.file_name, update.sha256);
+        bail!(
+            "checksum mismatch for {} (expected {}, got {actual})",
+            update.file_name,
+            update.sha256
+        );
     }
     let _ = fs::remove_file(dest);
     fs::rename(&tmp, dest)?;
@@ -149,22 +173,37 @@ b1c5a0be00569533c8ff06e273179818e34a1b475b4e40097434740f200132b3  IPTV-Setup-0.3
     fn finds_newer_file_for_each_platform() {
         let u = find_update(SUMS, "IPTV-Setup-", ".exe", "0.2.0", RELEASES).unwrap();
         assert_eq!(u.version, "0.3.0");
-        assert_eq!(u.url, "https://github.com/vickdini/iptv/releases/download/v0.3.0/IPTV-Setup-0.3.0.exe");
-        assert_eq!(u.sha256, "b1c5a0be00569533c8ff06e273179818e34a1b475b4e40097434740f200132b3");
+        assert_eq!(
+            u.url,
+            "https://github.com/vickdini/iptv/releases/download/v0.3.0/IPTV-Setup-0.3.0.exe"
+        );
+        assert_eq!(
+            u.sha256,
+            "b1c5a0be00569533c8ff06e273179818e34a1b475b4e40097434740f200132b3"
+        );
 
         // "IPTV-" must not match "IPTV-Samsung-TV-..." or "IPTV-Setup-...".
         let apk = find_update(SUMS, "IPTV-", ".apk", "0.2.0", RELEASES).unwrap();
         assert_eq!(apk.file_name, "IPTV-0.3.0.apk");
 
-        assert_eq!(find_update(SUMS, "IPTV-Setup-", ".exe", "0.3.0", RELEASES), None); // same
-        assert_eq!(find_update(SUMS, "IPTV-Setup-", ".exe", "0.4.0", RELEASES), None); // older
+        assert_eq!(
+            find_update(SUMS, "IPTV-Setup-", ".exe", "0.3.0", RELEASES),
+            None
+        ); // same
+        assert_eq!(
+            find_update(SUMS, "IPTV-Setup-", ".exe", "0.4.0", RELEASES),
+            None
+        ); // older
     }
 
     #[test]
     fn download_verifies_checksum() {
         use std::{io::BufRead, net::TcpListener, thread};
         let body = b"installer bytes".to_vec();
-        let sha: String = Sha256::digest(&body).iter().map(|b| format!("{b:02x}")).collect();
+        let sha: String = Sha256::digest(&body)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let served = body.clone();
@@ -176,7 +215,10 @@ b1c5a0be00569533c8ff06e273179818e34a1b475b4e40097434740f200132b3  IPTV-Setup-0.3
                 while reader.read_line(&mut line).unwrap() > 2 {
                     line.clear();
                 }
-                let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", served.len());
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    served.len()
+                );
                 stream.write_all(head.as_bytes()).unwrap();
                 stream.write_all(&served).unwrap();
             }

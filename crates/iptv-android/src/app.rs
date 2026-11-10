@@ -35,7 +35,9 @@ pub fn init(cache: PathBuf, config: PathBuf) {
 pub fn load_playlist(url: &str) -> Result<String> {
     let (cache, config) = {
         let dirs = DIRS.lock().unwrap();
-        let d = dirs.as_ref().ok_or_else(|| anyhow!("Core.init was not called"))?;
+        let d = dirs
+            .as_ref()
+            .ok_or_else(|| anyhow!("Core.init was not called"))?;
         (d.cache.clone(), d.config.clone())
     };
     let (channels, freshness) = playlist::load(url, &cache)?;
@@ -58,7 +60,9 @@ pub fn is_loaded() -> bool {
 /// Runs `f` with the loaded app.
 pub fn with<T>(f: impl FnOnce(&mut App) -> Result<T>) -> Result<T> {
     let mut guard = APP.lock().unwrap_or_else(|e| e.into_inner());
-    let app = guard.as_mut().ok_or_else(|| anyhow!("playlist not loaded yet"))?;
+    let app = guard
+        .as_mut()
+        .ok_or_else(|| anyhow!("playlist not loaded yet"))?;
     f(app)
 }
 
@@ -80,7 +84,12 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(channels: Vec<Channel>, cache_dir: PathBuf, config_dir: PathBuf, run_checks: bool) -> Self {
+    pub fn new(
+        channels: Vec<Channel>,
+        cache_dir: PathBuf,
+        config_dir: PathBuf,
+        run_checks: bool,
+    ) -> Self {
         let state: SavedState = fs::read_to_string(config_dir.join("state.json"))
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -109,7 +118,10 @@ impl App {
         let alive = Arc::new(AtomicBool::new(true));
         let check_total = if run_checks { jobs.len() } else { 0 };
         if run_checks {
-            let jobs = jobs.into_iter().map(|i| (i, tuner.channels()[i].clone())).collect();
+            let jobs = jobs
+                .into_iter()
+                .map(|i| (i, tuner.channels()[i].clone()))
+                .collect();
             let (results, alive) = (results.clone(), alive.clone());
             health::spawn_checker(jobs, DEFAULT_USER_AGENT, move |r| {
                 if !alive.load(Ordering::Relaxed) {
@@ -120,7 +132,17 @@ impl App {
             });
         }
 
-        Self { tuner, health, config_dir, results, alive, check_total, check_done: 0, tune_seq: 0, last_save: Instant::now() }
+        Self {
+            tuner,
+            health,
+            config_dir,
+            results,
+            alive,
+            check_total,
+            check_done: 0,
+            tune_seq: 0,
+            last_save: Instant::now(),
+        }
     }
 
     pub fn start(&mut self) -> String {
@@ -228,6 +250,18 @@ impl App {
         self.effects(fx)
     }
 
+    /// `{"audio": code|null, "subtitles": code|null}` (subtitles null = off).
+    pub fn track_prefs(&self) -> String {
+        let (audio, subtitles) = self.tuner.track_prefs();
+        json!({ "audio": audio, "subtitles": subtitles }).to_string()
+    }
+
+    /// Remembers the audio / subtitle language the user picked.
+    pub fn set_track_prefs(&mut self, audio: Option<String>, subtitles: Option<String>) {
+        let fx = self.tuner.set_track_prefs(audio, subtitles);
+        self.effects(fx);
+    }
+
     pub fn search_text(&self) -> String {
         self.tuner.search_text().unwrap_or_default().to_string()
     }
@@ -257,7 +291,11 @@ impl App {
 
     /// Every channel name, by index (fetched once by the UI).
     pub fn names(&self) -> Vec<String> {
-        self.tuner.channels().iter().map(|c| c.name.clone()).collect()
+        self.tuner
+            .channels()
+            .iter()
+            .map(|c| c.name.clone())
+            .collect()
     }
 
     pub fn save(&mut self) {
@@ -266,8 +304,12 @@ impl App {
     }
 
     fn status(&self) -> Option<String> {
-        (self.check_done < self.check_total)
-            .then(|| format!("Checking channels {}%", self.check_done * 100 / self.check_total.max(1)))
+        (self.check_done < self.check_total).then(|| {
+            format!(
+                "Checking channels {}%",
+                self.check_done * 100 / self.check_total.max(1)
+            )
+        })
     }
 
     fn save_state(&self) {
@@ -299,7 +341,9 @@ impl App {
                         "referrer": ch.referrer,
                     }));
                 }
-                Effect::Osd { text, ms } => out.push(json!({ "type": "osd", "text": text, "ms": ms })),
+                Effect::Osd { text, ms } => {
+                    out.push(json!({ "type": "osd", "text": text, "ms": ms }))
+                }
                 Effect::StartDigitTimer => {
                     out.push(json!({ "type": "digitTimer", "ms": DIGIT_TIMEOUT_MS }))
                 }
@@ -322,7 +366,8 @@ mod tests {
     use super::*;
 
     fn app(dir: &str) -> App {
-        let base = std::env::temp_dir().join(format!("iptv-android-test-{dir}-{}", std::process::id()));
+        let base =
+            std::env::temp_dir().join(format!("iptv-android-test-{dir}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let chs = (0..5)
             .map(|i| Channel {
@@ -336,7 +381,11 @@ mod tests {
     }
 
     fn parse(s: &str) -> Vec<Value> {
-        serde_json::from_str::<Value>(s).unwrap().as_array().unwrap().clone()
+        serde_json::from_str::<Value>(s)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone()
     }
 
     #[test]
@@ -349,7 +398,11 @@ mod tests {
         assert_eq!(fx[1]["type"], "osd");
 
         let fx = parse(&a.action("up", None));
-        let fx = if fx[0]["idx"] == 1 { parse(&a.action("up", None)) } else { fx };
+        let fx = if fx[0]["idx"] == 1 {
+            parse(&a.action("up", None))
+        } else {
+            fx
+        };
         assert_eq!(fx[0]["idx"], 2);
         assert_eq!(fx[0]["userAgent"], "UA2");
 
