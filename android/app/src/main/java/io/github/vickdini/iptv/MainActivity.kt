@@ -506,6 +506,8 @@ class MainActivity : AppCompatActivity() {
                 if (countries) applyRegions(picked, other) else applyRegions(other, picked)
             }
             .setNegativeButton(android.R.string.cancel, null)
+            // Clears countries and languages at once: every channel again.
+            .setNeutralButton(R.string.regions_clear_all) { _, _ -> applyRegions(emptyList(), emptyList()) }
             .show()
     }
 

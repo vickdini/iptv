@@ -157,19 +157,54 @@ pub enum PickerTab {
 
 /// Country / language chooser, drawn in place of the channel list.
 /// Rows have a check box, the name and the number of working channels;
-/// typing narrows the list.
+/// typing narrows the list. While anything is chosen, the first row clears
+/// all filters.
+///
+/// Rows are numbered for the list model: 0 is the "clear all" row, and the
+/// country / language `i` is row `i + 1` (so rows stay in ascending order).
 pub struct Picker {
     pub tab: PickerTab,
     pub query: String,
     all: Vec<(String, usize)>,
+    /// Something is chosen (in either tab): offer the "clear all" row.
+    has_filter: bool,
     pub browser: Browser,
 }
 
+const CLEAR_ROW: usize = 0;
+
 impl Picker {
     pub fn new(tuner: &Tuner) -> Self {
-        let mut p = Self { tab: PickerTab::Countries, query: String::new(), all: Vec::new(), browser: Browser::new(vec![], 0, ROWS) };
+        let mut p = Self {
+            tab: PickerTab::Countries,
+            query: String::new(),
+            all: Vec::new(),
+            has_filter: false,
+            browser: Browser::new(vec![], 0, ROWS),
+        };
         p.reload(tuner);
         p
+    }
+
+    /// After ticking: refreshes the rows, keeping the selection where it is.
+    pub fn update(&mut self, tuner: &Tuner) {
+        self.has_filter = tuner.region_label().is_some();
+        let items = self.rows();
+        self.browser.replace_items(items);
+    }
+
+    fn rows(&self) -> Vec<usize> {
+        let q = normalize(self.query.trim());
+        let clear = (self.has_filter && q.is_empty()).then_some(CLEAR_ROW);
+        clear
+            .into_iter()
+            .chain((0..self.all.len()).filter(|&i| normalize(&self.all[i].0).contains(&q)).map(|i| i + 1))
+            .collect()
+    }
+
+    /// The "clear all filters" row is selected.
+    pub fn clear_selected(&self) -> bool {
+        self.browser.selected_channel() == Some(CLEAR_ROW)
     }
 
     /// Reloads names and counts for the current tab and re-applies the typed filter.
@@ -178,12 +213,12 @@ impl Picker {
             PickerTab::Countries => tuner.countries(),
             PickerTab::Languages => tuner.languages(),
         };
+        self.has_filter = tuner.region_label().is_some();
         self.refilter();
     }
 
     pub fn refilter(&mut self) {
-        let q = normalize(self.query.trim());
-        let items = (0..self.all.len()).filter(|&i| normalize(&self.all[i].0).contains(&q)).collect();
+        let items = self.rows();
         self.browser.set_items(items, 0);
     }
 
@@ -197,7 +232,10 @@ impl Picker {
     }
 
     pub fn selected_name(&self) -> Option<&str> {
-        self.browser.selected_channel().map(|i| self.all[i].0.as_str())
+        match self.browser.selected_channel()? {
+            CLEAR_ROW => None,
+            row => Some(self.all[row - 1].0.as_str()),
+        }
     }
 
     pub fn hit(&self, x: f64, y: f64) -> Hit {
@@ -223,7 +261,7 @@ impl Picker {
             format!("{name}: {}_", self.query)
         };
         ev.push(text(PAD, 24.0, 26, C_TEXT, true, &title, PANEL_W - PAD));
-        let hint = format!("type to find     Enter  tick     Tab  {other}     Del  clear     Esc  back");
+        let hint = format!("type to find     Enter  tick     Tab  {other}     Del  clear all     Esc  back");
         ev.push(text(PAD, 48.0, 15, C_DIM, false, &hint, PANEL_W - PAD));
         ev.push(rect(PAD, HEADER_H - 4.0, PANEL_W - PAD, HEADER_H - 3.0, C_DIM, 0x90));
 
@@ -240,7 +278,11 @@ impl Picker {
             if selected {
                 ev.push(rect(4.0, top + 1.0, PANEL_W - SCROLLBAR_HIT_W + 4.0, top + ROW_H - 1.0, C_SELECT, 0x20));
             }
-            let (label, count) = &self.all[i];
+            if i == CLEAR_ROW {
+                ev.push(text(PAD + 8.0, mid, 20, C_PLAYING, true, "✕  Clear all filters (show every channel)", right));
+                continue;
+            }
+            let (label, count) = &self.all[i - 1];
             let on = chosen.contains(label);
             let mark = if on { "☑" } else { "☐" };
             let color = if on { C_PLAYING } else { C_TEXT };

@@ -560,6 +560,9 @@ impl App {
     /// Ticks / unticks the selected country or language; applies at once.
     async fn toggle_region(&mut self) -> Result<()> {
         let Some(picker) = self.picker.as_ref() else { return Ok(()) };
+        if picker.clear_selected() {
+            return self.clear_regions().await;
+        }
         let Some(name) = picker.selected_name().map(str::to_string) else { return Ok(()) };
         let (mut countries, mut languages) = self.tuner.regions();
         let list = if picker.tab == PickerTab::Countries { &mut countries } else { &mut languages };
@@ -570,7 +573,22 @@ impl App {
             None => list.push(name),
         }
         let fx = self.tuner.set_regions(countries, languages);
-        self.apply(fx).await
+        self.apply(fx).await?;
+        self.refresh_picker().await
+    }
+
+    /// Clears every country and language: all channels again.
+    async fn clear_regions(&mut self) -> Result<()> {
+        let fx = self.tuner.set_regions(vec![], vec![]);
+        self.apply(fx).await?;
+        self.refresh_picker().await
+    }
+
+    async fn refresh_picker(&mut self) -> Result<()> {
+        if let Some(picker) = self.picker.as_mut() {
+            picker.update(&self.tuner);
+        }
+        self.redraw().await
     }
 
     /// Keys while choosing countries / languages.
@@ -616,14 +634,7 @@ impl App {
                 picker.refilter();
             }
             ("list", _) => picker.switch_tab(&self.tuner),
-            ("clear", _) => {
-                let (countries, languages) = self.tuner.regions();
-                let fx = match picker.tab {
-                    PickerTab::Countries => self.tuner.set_regions(vec![], languages),
-                    PickerTab::Languages => self.tuner.set_regions(countries, vec![]),
-                };
-                return self.apply(fx).await;
-            }
+            ("clear", _) => return self.clear_regions().await,
             ("back", _) => {
                 if picker.query.is_empty() {
                     return self.close_picker().await;

@@ -377,7 +377,8 @@ function buildRows() {
 
 var KEYS_CHANNELS = '◀ ▶ group &nbsp; <span class="red">●</span> favorite &nbsp; <span class="green">●</span> favorites &nbsp; ' +
     '<span class="blue">●</span> search &nbsp; <span class="yellow">●</span> countries';
-var KEYS_PICKER = '◀ ▶ countries / languages &nbsp; OK tick &nbsp; <span class="blue">●</span> find &nbsp; Back done';
+var KEYS_PICKER = '◀ ▶ countries / languages &nbsp; OK tick &nbsp; <span class="red">●</span> clear all &nbsp; ' +
+    '<span class="blue">●</span> find &nbsp; Back done';
 
 /** The chooser, shown in the channel list's place: null when closed. */
 var picker = null;
@@ -410,6 +411,9 @@ function pickerLoad(keepSel) {
 function pickerFilter(keepSel) {
     var q = fold(picker.query.trim());
     picker.items = [];
+    // While anything is chosen, the first row clears every filter (-1).
+    var chosenAny = picker.info.chosenCountries.length || picker.info.chosenLanguages.length;
+    if (chosenAny && !q) picker.items.push(-1);
     for (var i = 0; i < picker.all.length; i++) {
         if (fold(picker.all[i][0]).indexOf(q) >= 0) picker.items.push(i);
     }
@@ -434,6 +438,14 @@ function renderPicker() {
         var el = panel.els[r];
         var i = picker.scroll + r;
         if (i >= picker.items.length) { el.style.visibility = 'hidden'; continue; }
+        if (picker.items[i] === -1) {
+            el.style.visibility = 'visible';
+            el.classList.toggle('selected', i === picker.sel);
+            el.classList.add('playing');
+            el.firstChild.textContent = '';
+            el.lastChild.textContent = '✕  Clear all filters (show every channel)';
+            continue;
+        }
         var entry = picker.all[picker.items[i]];
         var on = chosen.indexOf(entry[0]) >= 0;
         el.style.visibility = 'visible';
@@ -462,6 +474,7 @@ function pickerSwitchTab() {
 /** Ticks / unticks the selected entry; applies at once. */
 function pickerToggle() {
     if (!picker.items.length) return;
+    if (picker.items[picker.sel] === -1) return pickerClearAll();
     var name = picker.all[picker.items[picker.sel]][0];
     var countries = picker.info.chosenCountries.slice();
     var languages = picker.info.chosenLanguages.slice();
@@ -470,6 +483,12 @@ function pickerToggle() {
     if (at >= 0) list.splice(at, 1); else list.push(name);
     perform(core.setRegions(JSON.stringify(countries), JSON.stringify(languages)));
     pickerLoad(true);
+}
+
+/** Clears every country and language: all channels again. */
+function pickerClearAll() {
+    perform(core.setRegions('[]', '[]'));
+    pickerLoad(false);
 }
 
 /**
@@ -578,6 +597,7 @@ function onKey(ev) {
             case 'chdown': pickerMove(panel.rows); break;
             case 'left': case 'right': pickerSwitchTab(); break;
             case 'enter': pickerToggle(); break;
+            case 'red': pickerClearAll(); break;
             case 'blue': startSearch(); break;
             case 'back': case 'list': closePicker(); break;
         }
