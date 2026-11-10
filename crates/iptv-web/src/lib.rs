@@ -22,10 +22,13 @@ pub struct WebCore {
 
 #[wasm_bindgen]
 impl WebCore {
-    /// Parses the playlist text and restores the saved state (JSON, may be empty).
+    /// Parses the playlist text and restores the saved state (JSON, may be
+    /// empty). `by_country` / `by_language` are iptv-org's playlists grouped
+    /// by country / language (empty if unavailable), for that filter.
     #[wasm_bindgen(constructor)]
-    pub fn new(playlist: &str, state_json: &str) -> Result<WebCore, JsError> {
-        let channels = parse_m3u(playlist);
+    pub fn new(playlist: &str, state_json: &str, by_country: &str, by_language: &str) -> Result<WebCore, JsError> {
+        let mut channels = parse_m3u(playlist);
+        iptv_core::m3u::tag_regions(&mut channels, by_country, by_language);
         let state: SavedState = serde_json::from_str(state_json).unwrap_or_default();
         let tuner = Tuner::new(channels, &state).ok_or_else(|| JsError::new("The playlist contains no channels."))?;
         Ok(WebCore { tuner, tune_seq: 0 })
@@ -128,6 +131,35 @@ impl WebCore {
         self.tuner.set_search(text);
     }
 
+    /// `{"countries":[[name,count]...],"languages":[...],"chosenCountries":[...],"chosenLanguages":[...]}`
+    #[wasm_bindgen(js_name = regionsInfo)]
+    pub fn regions_info(&self) -> String {
+        let (c, l) = self.tuner.regions();
+        json!({
+            "countries": self.tuner.countries(),
+            "languages": self.tuner.languages(),
+            "chosenCountries": c,
+            "chosenLanguages": l,
+        })
+        .to_string()
+    }
+
+    /// Shows only channels from these countries or in these languages
+    /// (JSON arrays of names; both empty: all channels). Returns effects.
+    #[wasm_bindgen(js_name = setRegions)]
+    pub fn set_regions(&mut self, countries_json: &str, languages_json: &str) -> String {
+        let countries: Vec<String> = serde_json::from_str(countries_json).unwrap_or_default();
+        let languages: Vec<String> = serde_json::from_str(languages_json).unwrap_or_default();
+        let fx = self.tuner.set_regions(countries, languages);
+        self.effects(fx)
+    }
+
+    /// "Italy · English" or empty.
+    #[wasm_bindgen(js_name = regionLabel)]
+    pub fn region_label(&self) -> String {
+        self.tuner.region_label().unwrap_or_default()
+    }
+
     /// The search in effect, or empty.
     #[wasm_bindgen(js_name = searchText)]
     pub fn search_text(&self) -> String {
@@ -197,7 +229,7 @@ mod tests {
 
     #[test]
     fn tunes_and_skips_failures() {
-        let mut c = WebCore::new(PLAYLIST, "").unwrap();
+        let mut c = WebCore::new(PLAYLIST, "", "", "").unwrap();
         assert_eq!(c.channel_count(), 3);
         let start = fx(&c.start());
         assert_eq!(start[0]["seq"], 1);
@@ -216,12 +248,12 @@ mod tests {
 
     #[test]
     fn state_round_trips() {
-        let mut c = WebCore::new(PLAYLIST, "").unwrap();
+        let mut c = WebCore::new(PLAYLIST, "", "", "").unwrap();
         c.start();
         c.action("up", None);
         c.toggle_favorite(1);
         let state = c.state();
-        let c2 = WebCore::new(PLAYLIST, &state).unwrap();
+        let c2 = WebCore::new(PLAYLIST, &state, "", "").unwrap();
         assert_eq!(c2.current(), 1);
         assert_eq!(c2.favorites(), vec![1]);
     }

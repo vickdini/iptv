@@ -19,7 +19,7 @@ var UI_HTML = [
     '<div id="panel" class="panel hidden">',
     '  <div class="panel-head">',
     '    <div id="panel-title" class="panel-title"></div>',
-    '    <div class="panel-keys">◀ ▶ group &nbsp; <span class="red">●</span> favorite &nbsp; <span class="green">●</span> favorites only &nbsp; <span class="blue">●</span> search</div>',
+    '    <div id="panel-keys" class="panel-keys"></div>',
     '    <input id="search" class="search" type="text" placeholder="Search channels…" autocomplete="off" spellcheck="false">',
     '    <div id="panel-status" class="panel-status"></div>',
     '  </div>',
@@ -36,6 +36,7 @@ var HELP = [
     'INFO                   channel info',
     'Red                    favorite      Green  favorites only',
     'Blue                   search channels by name',
+    'Yellow (in the list)   countries & languages',
     'Back                   close list / exit',
     '',
     'IPTV ' + (window.IPTV_VERSION || ''),
@@ -68,25 +69,27 @@ function initCore() {
     wasm_bindgen.initSync({ module: bytes });
 }
 
-/** Playlist with conditional requests: downloads only when it changed. */
-function loadPlaylist() {
-    return Promise.all([Store.get('playlist'), Store.get('playlistMeta')]).catch(function () { return [null, null]; })
+/** A playlist with conditional requests: downloads only when it changed. */
+function loadPlaylist(url, key) {
+    url = url || PLAYLIST_URL;
+    key = key || 'playlist';
+    return Promise.all([Store.get(key), Store.get(key + 'Meta')]).catch(function () { return [null, null]; })
         .then(function (cached) {
             var text = cached[0];
             var meta = cached[1];
             var headers = {};
-            if (text && meta && meta.url === PLAYLIST_URL) {
+            if (text && meta && meta.url === url) {
                 if (meta.etag) headers['If-None-Match'] = meta.etag;
                 if (meta.lastModified) headers['If-Modified-Since'] = meta.lastModified;
             }
             function download(h) {
-                return fetch(PLAYLIST_URL, { headers: h, cache: 'no-store' }).then(function (r) {
+                return fetch(url, { headers: h, cache: 'no-store' }).then(function (r) {
                     if (r.status === 304 && text) return text;
                     if (!r.ok) throw new Error('HTTP ' + r.status);
                     return r.text().then(function (body) {
-                        Store.set('playlist', body).catch(function () {});
-                        Store.set('playlistMeta', {
-                            url: PLAYLIST_URL,
+                        Store.set(key, body).catch(function () {});
+                        Store.set(key + 'Meta', {
+                            url: url,
                             etag: r.headers.get('ETag'),
                             lastModified: r.headers.get('Last-Modified'),
                         }).catch(function () {});
@@ -123,6 +126,11 @@ function boot() {
     $('rows').addEventListener('click', onRowClick);
     $('search').addEventListener('input', function () {
         if (!loaded) return;
+        if (picker) { // the search box finds countries / languages while choosing them
+            picker.query = $('search').value;
+            pickerFilter();
+            return;
+        }
         core.setSearch($('search').value);
         refreshList(false, true);
     });
@@ -138,11 +146,19 @@ function boot() {
 
 function load() {
     showStatus('Loading channels…');
-    Promise.all([loadPlaylist(), HealthCache.load()]).then(function (res) {
+    // iptv-org also publishes the same channels grouped by country and by
+    // language, for the countries & languages filter (optional).
+    var companion = function (name, key) {
+        return loadPlaylist(PLAYLIST_URL.replace(/index\.m3u$/, name), key).catch(function () { return ''; });
+    };
+    Promise.all([
+        loadPlaylist(), HealthCache.load(),
+        companion('index.country.m3u', 'byCountry'), companion('index.language.m3u', 'byLanguage'),
+    ]).then(function (res) {
         showStatus('Loading channels… (' + Math.round(res[0].length / 1024) + ' KB)');
         var state = '';
         try { state = localStorage.getItem(STATE_KEY) || ''; } catch (e) { /* ignore */ }
-        core = new wasm_bindgen.WebCore(res[0], state);
+        core = new wasm_bindgen.WebCore(res[0], state, res[2], res[3]);
         health = res[1];
         names = core.names();
         urls = core.urls();
@@ -199,20 +215,26 @@ function runChecks(jobs) {
 var lastHealthSave = Date.now();
 
 function tick() {
-    if (panel.open) {
+    if (panel.open && !picker) {
         // Channels found dead while checking: refresh the list now and then,
         // never while the user is pressing keys.
         if (checks.changed && Date.now() - lastKey > 1500) {
             checks.changed = false;
             refreshList(true);
         } else {
-            $('panel-status').textContent = checkStatus();
+            $('panel-status').textContent = listStatus();
         }
     }
     if (Date.now() - lastHealthSave > 20000) {
         lastHealthSave = Date.now();
         health.save();
     }
+}
+
+/** Under the list title: check progress, or the countries / languages shown. */
+function listStatus() {
+    var region = core.regionLabel();
+    return checkStatus() || (region ? 'Showing: ' + region : '');
 }
 
 function checkStatus() {
@@ -330,6 +352,7 @@ function clearSearchBox() {
 
 function closePanel() {
     endSearchTyping();
+    if (picker) { picker = null; clearSearchBox(); }
     panel.open = false;
     $('panel').classList.add('hidden');
 }
@@ -350,11 +373,112 @@ function buildRows() {
     }
 }
 
+/* ------------------------------------------------- countries & languages */
+
+var KEYS_CHANNELS = '◀ ▶ group &nbsp; <span class="red">●</span> favorite &nbsp; <span class="green">●</span> favorites &nbsp; ' +
+    '<span class="blue">●</span> search &nbsp; <span class="yellow">●</span> countries';
+var KEYS_PICKER = '◀ ▶ countries / languages &nbsp; OK tick &nbsp; <span class="blue">●</span> find &nbsp; Back done';
+
+/** The chooser, shown in the channel list's place: null when closed. */
+var picker = null;
+
+function fold(s) {
+    return String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function openPicker() {
+    if (!panel.open) openPanel();
+    picker = { tab: 'countries', query: '', info: null, all: [], items: [], sel: 0, scroll: 0 };
+    clearSearchBox();
+    pickerLoad(false);
+}
+
+function closePicker() {
+    picker = null;
+    endSearchTyping();
+    clearSearchBox();
+    refreshList(false);
+}
+
+/** Reloads names, counts and ticks; `keepSel` keeps the selection (after ticking). */
+function pickerLoad(keepSel) {
+    picker.info = JSON.parse(core.regionsInfo());
+    picker.all = picker.info[picker.tab];
+    pickerFilter(keepSel);
+}
+
+function pickerFilter(keepSel) {
+    var q = fold(picker.query.trim());
+    picker.items = [];
+    for (var i = 0; i < picker.all.length; i++) {
+        if (fold(picker.all[i][0]).indexOf(q) >= 0) picker.items.push(i);
+    }
+    if (!keepSel) { picker.sel = 0; picker.scroll = 0; }
+    picker.sel = Math.min(picker.sel, Math.max(0, picker.items.length - 1));
+    renderPicker();
+}
+
+function pickerChosen() {
+    return picker.info[picker.tab === 'countries' ? 'chosenCountries' : 'chosenLanguages'];
+}
+
+function renderPicker() {
+    var chosen = pickerChosen();
+    var name = picker.tab === 'countries' ? 'Countries' : 'Languages';
+    $('panel-title').textContent = chosen.length ? name + ' · ' + chosen.length + ' chosen' : name;
+    $('panel-keys').innerHTML = KEYS_PICKER;
+    var label = core.regionLabel();
+    $('panel-status').textContent = !picker.all.length ? 'Not available for this playlist'
+        : label ? 'Showing: ' + label : 'Nothing chosen: all channels';
+    for (var r = 0; r < panel.els.length; r++) {
+        var el = panel.els[r];
+        var i = picker.scroll + r;
+        if (i >= picker.items.length) { el.style.visibility = 'hidden'; continue; }
+        var entry = picker.all[picker.items[i]];
+        var on = chosen.indexOf(entry[0]) >= 0;
+        el.style.visibility = 'visible';
+        el.classList.toggle('selected', i === picker.sel);
+        el.classList.toggle('playing', on);
+        el.firstChild.textContent = entry[1];
+        el.lastChild.textContent = (on ? '☑  ' : '☐  ') + entry[0];
+    }
+}
+
+function pickerMove(delta) {
+    if (!picker.items.length) return;
+    picker.sel = Math.min(Math.max(0, picker.sel + delta), picker.items.length - 1);
+    if (picker.sel < picker.scroll) picker.scroll = picker.sel;
+    else if (picker.sel >= picker.scroll + panel.rows) picker.scroll = picker.sel - panel.rows + 1;
+    renderPicker();
+}
+
+function pickerSwitchTab() {
+    picker.tab = picker.tab === 'countries' ? 'languages' : 'countries';
+    picker.query = '';
+    clearSearchBox();
+    pickerLoad(false);
+}
+
+/** Ticks / unticks the selected entry; applies at once. */
+function pickerToggle() {
+    if (!picker.items.length) return;
+    var name = picker.all[picker.items[picker.sel]][0];
+    var countries = picker.info.chosenCountries.slice();
+    var languages = picker.info.chosenLanguages.slice();
+    var list = picker.tab === 'countries' ? countries : languages;
+    var at = list.indexOf(name);
+    if (at >= 0) list.splice(at, 1); else list.push(name);
+    perform(core.setRegions(JSON.stringify(countries), JSON.stringify(languages)));
+    pickerLoad(true);
+}
+
 /**
  * Reloads the list; `keep` keeps the selection on the same screen row,
  * `toFirst` selects the first row (new search results).
  */
 function refreshList(keep, toFirst) {
+    if (picker) return renderPicker();
+    $('panel-keys').innerHTML = KEYS_CHANNELS;
     var info = JSON.parse(core.listInfo());
     var oldSelIdx = panel.items.length ? panel.items[panel.sel] : -1;
     var oldRow = panel.sel - panel.scroll;
@@ -362,7 +486,7 @@ function refreshList(keep, toFirst) {
     panel.favs = new Set(Array.from(core.favorites()));
     panel.current = info.current;
     $('panel-title').textContent = info.title;
-    $('panel-status').textContent = checkStatus();
+    $('panel-status').textContent = listStatus();
     if (toFirst) {
         panel.sel = 0;
         panel.scroll = 0;
@@ -438,7 +562,27 @@ function onKey(ev) {
         return;
     }
     if (k.key === 'digit') { tvAction('digit', k.digit); return; }
-    if (k.key === 'yellow') { showOsd(HELP, 8000); return; }
+    if (k.key === 'yellow') {
+        // In the list: countries & languages. Otherwise: help.
+        if (picker) closePicker();
+        else if (panel.open) openPicker();
+        else showOsd(HELP, 8000);
+        return;
+    }
+
+    if (picker) {
+        switch (k.key) {
+            case 'up': if (picker.sel === 0) startSearch(); else pickerMove(-1); break;
+            case 'down': pickerMove(1); break;
+            case 'chup': pickerMove(-panel.rows); break;
+            case 'chdown': pickerMove(panel.rows); break;
+            case 'left': case 'right': pickerSwitchTab(); break;
+            case 'enter': pickerToggle(); break;
+            case 'blue': startSearch(); break;
+            case 'back': case 'list': closePicker(); break;
+        }
+        return;
+    }
 
     if (panel.open) {
         switch (k.key) {

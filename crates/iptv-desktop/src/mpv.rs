@@ -42,6 +42,7 @@ BS          script-message iptv prev
 TAB         script-message iptv list
 F1          script-message iptv help
 Ctrl+f      script-message iptv search
+DEL         script-message iptv clear
 MBTN_LEFT_DBL script-message iptv dblclick
 ";
 

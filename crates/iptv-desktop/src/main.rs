@@ -19,7 +19,7 @@ use tokio::time::Instant;
 use crate::{
     health::{CheckResult, HealthCache, Probe},
     mpv::{Event, Mpv},
-    panel::{Hit, Panel},
+    panel::{Hit, Panel, Picker, PickerTab},
 };
 
 const DEFAULT_PLAYLIST: &str = "https://iptv-org.github.io/iptv/index.m3u";
@@ -214,6 +214,7 @@ async fn run(args: Args) -> Result<()> {
         current_loaded: false,
         typing: false,
         query: String::new(),
+        picker: None,
     };
     let fx = app.tuner.start();
     app.apply(fx).await?;
@@ -364,6 +365,8 @@ struct App {
     /// Typing a search in the channel list, and the text so far.
     typing: bool,
     query: String,
+    /// The country / language chooser, when open (inside the channel list).
+    picker: Option<Picker>,
 }
 
 /// What a letter key does when not typing a search.
@@ -377,6 +380,7 @@ fn shortcut(c: &str) -> Option<&'static str> {
         "S" => "fav-only",
         "h" | "?" => "help",
         "/" => "search",
+        "c" => "regions",
         "f" => "fullscreen",
         "m" => "mute",
         "p" | "space" => "pause",
@@ -443,6 +447,9 @@ impl App {
         if self.debug {
             eprintln!("key: {name} {}", arg.unwrap_or_default());
         }
+        if self.picker.is_some() {
+            return self.picker_key(name, arg).await;
+        }
         if self.typing {
             return self.search_key(name, arg).await;
         }
@@ -456,6 +463,7 @@ impl App {
         };
         match name {
             "search" => return self.start_search().await,
+            "regions" => return self.open_picker().await,
             "fullscreen" => return self.player.command(json!(["cycle", "fullscreen"])).await,
             "mute" => return self.player.command(json!(["cycle", "mute"])).await,
             "pause" => return self.player.command(json!(["cycle", "pause"])).await,
@@ -529,6 +537,105 @@ impl App {
         self.redraw().await
     }
 
+    /// Opens the country / language chooser in the channel list.
+    async fn open_picker(&mut self) -> Result<()> {
+        if self.panel.is_none() {
+            self.open_panel().await?;
+        }
+        self.typing = false;
+        self.picker = Some(Picker::new(&self.tuner));
+        self.hover_select();
+        self.redraw().await
+    }
+
+    /// Back from the chooser to the channel list (which now shows the chosen channels).
+    async fn close_picker(&mut self) -> Result<()> {
+        self.picker = None;
+        if let Some(panel) = self.panel.as_mut() {
+            panel.refresh(&self.tuner);
+        }
+        self.redraw().await
+    }
+
+    /// Ticks / unticks the selected country or language; applies at once.
+    async fn toggle_region(&mut self) -> Result<()> {
+        let Some(picker) = self.picker.as_ref() else { return Ok(()) };
+        let Some(name) = picker.selected_name().map(str::to_string) else { return Ok(()) };
+        let (mut countries, mut languages) = self.tuner.regions();
+        let list = if picker.tab == PickerTab::Countries { &mut countries } else { &mut languages };
+        match list.iter().position(|x| *x == name) {
+            Some(i) => {
+                list.remove(i);
+            }
+            None => list.push(name),
+        }
+        let fx = self.tuner.set_regions(countries, languages);
+        self.apply(fx).await
+    }
+
+    /// Keys while choosing countries / languages.
+    async fn picker_key(&mut self, name: &str, arg: Option<&str>) -> Result<()> {
+        let mouse = self.mouse_canvas();
+        let Some(picker) = self.picker.as_mut() else { return Ok(()) };
+        let b = &mut picker.browser;
+        match (name, arg) {
+            ("up", _) => b.move_by(-1),
+            ("down", _) => b.move_by(1),
+            ("page-up", _) => b.page(-1),
+            ("page-down", _) => b.page(1),
+            ("home", _) => b.home(),
+            ("end", _) => b.end(),
+            ("wheel-up" | "wheel-down", _) => {
+                b.scroll_by(if name == "wheel-up" { -WHEEL_ROWS } else { WHEEL_ROWS });
+                self.hover_select();
+            }
+            ("ok", _) => return self.toggle_region().await,
+            ("click" | "dblclick", _) => {
+                let Some((x, y)) = mouse else { return Ok(()) };
+                match picker.hit(x, y) {
+                    Hit::Row(row) => {
+                        if picker.browser.select_row(row).is_some() {
+                            return self.toggle_region().await;
+                        }
+                    }
+                    Hit::Scrollbar(f) => picker.browser.scroll_to_fraction(f),
+                    Hit::Panel => {}
+                    Hit::Outside => return self.close_picker().await,
+                }
+            }
+            ("key", Some("space")) => {
+                picker.query.push(' ');
+                picker.refilter();
+            }
+            ("key", Some(c)) | ("digit", Some(c)) => {
+                picker.query.push_str(c);
+                picker.refilter();
+            }
+            ("prev", _) => {
+                picker.query.pop();
+                picker.refilter();
+            }
+            ("list", _) => picker.switch_tab(&self.tuner),
+            ("clear", _) => {
+                let (countries, languages) = self.tuner.regions();
+                let fx = match picker.tab {
+                    PickerTab::Countries => self.tuner.set_regions(vec![], languages),
+                    PickerTab::Languages => self.tuner.set_regions(countries, vec![]),
+                };
+                return self.apply(fx).await;
+            }
+            ("back", _) => {
+                if picker.query.is_empty() {
+                    return self.close_picker().await;
+                }
+                picker.query.clear();
+                picker.refilter();
+            }
+            _ => return Ok(()),
+        }
+        self.redraw().await
+    }
+
     /// Opens the channel list (if needed) and starts typing a search,
     /// continuing the current one if any.
     async fn start_search(&mut self) -> Result<()> {
@@ -598,6 +705,16 @@ impl App {
     /// Selects the row under the mouse. Returns true if the selection changed.
     fn hover_select(&mut self) -> bool {
         let Some((x, y)) = self.mouse_canvas() else { return false };
+        if let Some(picker) = self.picker.as_mut() {
+            return match picker.hit(x, y) {
+                Hit::Row(row) => {
+                    let before = picker.browser.selected_channel();
+                    picker.browser.select_row(row);
+                    picker.browser.selected_channel() != before
+                }
+                _ => false,
+            };
+        }
         let Some(panel) = self.panel.as_mut() else { return false };
         match panel.hit(x, y) {
             Hit::Row(row) => {
@@ -628,12 +745,17 @@ impl App {
     async fn close_panel(&mut self) -> Result<()> {
         self.panel = None;
         self.typing = false;
+        self.picker = None;
         self.player.remove_overlay(PANEL_OVERLAY_ID).await?;
         self.player.set_property("osd-align-x", json!("left")).await?;
         self.player.set_property("cursor-autohide", json!(1000)).await
     }
 
     async fn redraw(&mut self) -> Result<()> {
+        if let Some(picker) = &self.picker {
+            let ass = picker.render(&self.tuner);
+            return self.player.overlay(PANEL_OVERLAY_ID, &ass, panel::H).await;
+        }
         if let Some(panel) = &self.panel {
             let typing = self.typing.then_some(self.query.as_str());
             let ass = panel.render(&self.tuner, self.check_status().as_deref(), typing);

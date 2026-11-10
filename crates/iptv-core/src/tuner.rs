@@ -98,6 +98,12 @@ pub struct SavedState {
     pub last_index: usize,
     #[serde(default)]
     pub favorites: Vec<String>,
+    /// Show only channels from these countries or in these languages
+    /// (both empty: all channels).
+    #[serde(default)]
+    pub countries: Vec<String>,
+    #[serde(default)]
+    pub languages: Vec<String>,
 }
 
 pub struct Tuner {
@@ -118,6 +124,10 @@ pub struct Tuner {
     /// The search as typed, and its normalized words (all must match).
     search_text: String,
     search_words: Vec<String>,
+    /// Country / language preference: channels from any of these countries
+    /// or in any of these languages (both empty: no restriction).
+    region_countries: HashSet<String>,
+    region_languages: HashSet<String>,
 }
 
 impl Tuner {
@@ -154,6 +164,8 @@ impl Tuner {
             digits: String::new(),
             filter: Filter::All,
             favorites: state.favorites.iter().cloned().collect(),
+            region_countries: state.countries.iter().cloned().collect(),
+            region_languages: state.languages.iter().cloned().collect(),
         })
     }
 
@@ -179,17 +191,20 @@ impl Tuner {
     pub fn state(&self) -> SavedState {
         let mut favorites: Vec<String> = self.favorites.iter().cloned().collect();
         favorites.sort();
+        let (countries, languages) = self.regions();
         SavedState {
             last_url: Some(self.current_channel().url.clone()),
             last_index: self.current,
             favorites,
+            countries,
+            languages,
         }
     }
 
     /// Effects to perform at startup: tune the restored channel (or the next
     /// working one if it is known to be dead).
     pub fn start(&mut self) -> Vec<Effect> {
-        if self.dead[self.current] {
+        if !self.matches(self.current) {
             if let Some(idx) = self.step(true) {
                 self.current = idx;
             }
@@ -350,6 +365,79 @@ impl Tuner {
         (self.filter == Filter::Search).then_some(self.search_text.as_str())
     }
 
+    /// Shows only channels from any of `countries` or in any of `languages`
+    /// (both empty: all channels again), everywhere: zapping, lists, groups,
+    /// search and favorites. Moves to a matching channel if needed.
+    pub fn set_regions(&mut self, countries: Vec<String>, languages: Vec<String>) -> Vec<Effect> {
+        self.region_countries = countries.into_iter().collect();
+        self.region_languages = languages.into_iter().collect();
+        let title = match self.region_label() {
+            Some(label) => format!("Showing: {label}"),
+            None => "All countries and languages".to_string(),
+        };
+        let mut fx = self.enter_filter(title);
+        fx.push(Effect::Save);
+        fx
+    }
+
+    /// The chosen countries and languages, sorted.
+    pub fn regions(&self) -> (Vec<String>, Vec<String>) {
+        let mut c: Vec<String> = self.region_countries.iter().cloned().collect();
+        let mut l: Vec<String> = self.region_languages.iter().cloned().collect();
+        c.sort();
+        l.sort();
+        (c, l)
+    }
+
+    /// Short description of the country / language choice, if any:
+    /// "Italy, Spain · English" or "Italy +3".
+    pub fn region_label(&self) -> Option<String> {
+        let (c, l) = self.regions();
+        let short = |v: &[String]| match v.len() {
+            0 => None,
+            1..=2 => Some(v.join(", ")),
+            n => Some(format!("{} +{}", v[0], n - 1)),
+        };
+        match (short(&c), short(&l)) {
+            (None, None) => None,
+            (Some(a), None) | (None, Some(a)) => Some(a),
+            (Some(a), Some(b)) => Some(format!("{a} · {b}")),
+        }
+    }
+
+    /// Countries present in the playlist with their number of working
+    /// channels, by name. Empty if the playlist has no country data.
+    pub fn countries(&self) -> Vec<(String, usize)> {
+        self.region_counts(|c| &c.countries)
+    }
+
+    /// Languages present in the playlist with their number of working channels.
+    pub fn languages(&self) -> Vec<(String, usize)> {
+        self.region_counts(|c| &c.languages)
+    }
+
+    fn region_counts(&self, field: impl Fn(&Channel) -> &Vec<String>) -> Vec<(String, usize)> {
+        let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        for (i, ch) in self.channels.iter().enumerate() {
+            if self.dead[i] {
+                continue;
+            }
+            for v in field(ch) {
+                *counts.entry(v.clone()).or_default() += 1;
+            }
+        }
+        counts.into_iter().collect()
+    }
+
+    fn region_ok(&self, idx: usize) -> bool {
+        if self.region_countries.is_empty() && self.region_languages.is_empty() {
+            return true;
+        }
+        let ch = &self.channels[idx];
+        ch.countries.iter().any(|c| self.region_countries.contains(c))
+            || ch.languages.iter().any(|l| self.region_languages.contains(l))
+    }
+
     /// Channel indices Up/Down currently zap through, ascending.
     pub fn view(&self) -> Vec<usize> {
         (0..self.channels.len()).filter(|&i| self.matches(i)).collect()
@@ -370,10 +458,14 @@ impl Tuner {
     }
 
     fn matches(&self, idx: usize) -> bool {
-        if self.dead[idx] {
+        self.matches_with(idx, self.filter)
+    }
+
+    fn matches_with(&self, idx: usize, filter: Filter) -> bool {
+        if self.dead[idx] || !self.region_ok(idx) {
             return false;
         }
-        match self.filter {
+        match filter {
             Filter::All => true,
             Filter::Group(g) => self.channels[idx].groups.iter().any(|x| *x == self.groups[g]),
             Filter::Favorites => self.favorites.contains(&self.channels[idx].url),
@@ -459,7 +551,14 @@ impl Tuner {
         if let Some(id) = &ch.tvg_id {
             text.push_str(&format!("\nID: {id}"));
         }
+        if !ch.countries.is_empty() || !ch.languages.is_empty() {
+            text.push_str(&format!("\nFrom: {}", [ch.countries.join(", "), ch.languages.join(", ")]
+                .iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join(" · ")));
+        }
         text.push_str(&format!("\nView: {}", self.filter_name().unwrap_or("All channels".into())));
+        if let Some(r) = self.region_label() {
+            text.push_str(&format!("\nShowing: {r}"));
+        }
         text.push_str(&format!("\n{}", ch.url));
         Effect::Osd { text, ms: 6000 }
     }
@@ -474,7 +573,15 @@ impl Tuner {
             Filter::All | Filter::Favorites | Filter::Search => 0,
             Filter::Group(g) => g + 1,
         };
-        let next = if forward { (pos + 1) % (n + 1) } else { (pos + n) % (n + 1) };
+        // Skip groups with no channel in the chosen countries / languages.
+        let mut next = pos;
+        for _ in 0..=n {
+            next = if forward { (next + 1) % (n + 1) } else { (next + n) % (n + 1) };
+            let candidate = if next == 0 { Filter::All } else { Filter::Group(next - 1) };
+            if next == 0 || (0..self.channels.len()).any(|i| self.matches_with(i, candidate)) {
+                break;
+            }
+        }
         self.filter = if next == 0 { Filter::All } else { Filter::Group(next - 1) };
         self.enter_filter(self.view_title())
     }
@@ -509,6 +616,7 @@ Backspace                          previous channel
 Left / Right                       volume      m  mute
 i  info      l / Tab  channel panel (wheel, click, Esc)
 / or Ctrl+F  search channels by name
+c            choose countries and languages
 g / G        next / previous group
 s  toggle favorite    S  favorites only
 f  fullscreen         q  quit";
@@ -630,7 +738,7 @@ mod tests {
 
     #[test]
     fn restore_by_url_survives_reordering() {
-        let state = SavedState { last_url: Some("http://c3".into()), last_index: 0, favorites: vec![] };
+        let state = SavedState { last_url: Some("http://c3".into()), ..Default::default() };
         let mut chs: Vec<Channel> = (0..5).map(|i| ch(&format!("c{i}"), "G")).collect();
         chs.reverse();
         let t = Tuner::new(chs, &state).unwrap();
@@ -719,6 +827,64 @@ mod tests {
         t.set_search("cnn");
         t.handle(Action::NextGroup);
         assert_ne!(t.filter(), Filter::Search);
+    }
+
+    fn regional() -> Tuner {
+        let mk = |n: &str, c: &[&str], l: &[&str], g: &str| Channel {
+            name: n.into(),
+            url: format!("http://{n}"),
+            groups: vec![g.into()],
+            countries: c.iter().map(|s| s.to_string()).collect(),
+            languages: l.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        };
+        let chs = vec![
+            mk("rai", &["Italy"], &["Italian"], "General"),
+            mk("bbc", &["United Kingdom"], &["English"], "News"),
+            mk("rsi", &["Switzerland"], &["Italian"], "General"),
+            mk("tve", &["Spain"], &["Spanish"], "Kids"),
+            mk("cnn", &["United States"], &["English"], "News"),
+        ];
+        Tuner::new(chs, &SavedState::default()).unwrap()
+    }
+
+    #[test]
+    fn regions_show_channels_from_any_country_or_language() {
+        let mut t = regional();
+        assert_eq!(t.countries().len(), 5);
+        assert_eq!(t.languages(), vec![("English".into(), 2), ("Italian".into(), 2), ("Spanish".into(), 1)]);
+
+        // Italy OR English.
+        t.set_regions(vec!["Italy".into()], vec!["English".into()]);
+        assert_eq!(t.view(), vec![0, 1, 4]);
+        assert_eq!(t.region_label().as_deref(), Some("Italy · English"));
+        assert_eq!(tuned(&t.handle(Action::ChannelUp)), Some(1));
+        assert_eq!(tuned(&t.handle(Action::ChannelUp)), Some(4));
+        assert_eq!(tuned(&t.handle(Action::ChannelUp)), Some(0));
+
+        // A language alone also catches other countries (Swiss Italian).
+        t.set_regions(vec![], vec!["Italian".into()]);
+        assert_eq!(t.view(), vec![0, 2]);
+
+        // Group cycling skips groups with nothing to show (News, Kids).
+        assert_eq!(t.groups(), ["General", "Kids", "News"]);
+        t.handle(Action::NextGroup);
+        assert_eq!(t.filter(), Filter::Group(0)); // General
+        t.handle(Action::NextGroup);
+        assert_eq!(t.filter(), Filter::All); // Kids and News skipped
+
+        // Choosing regions moves away from a channel outside them.
+        t.set_regions(vec!["Spain".into()], vec![]);
+        assert_eq!(t.current(), 3);
+
+        // Remembered across restarts; clearing shows everything.
+        let state = t.state();
+        assert_eq!(state.countries, vec!["Spain"]);
+        let t2 = Tuner::new(t.channels().to_vec(), &state).unwrap();
+        assert_eq!(t2.view(), vec![3]);
+        t.set_regions(vec![], vec![]);
+        assert_eq!(t.view().len(), 5);
+        assert_eq!(t.region_label(), None);
     }
 
     #[test]

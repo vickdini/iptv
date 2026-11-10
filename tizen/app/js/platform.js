@@ -181,6 +181,7 @@ function setupKeys() {
             case 76: return { key: 'list' };                  // L
             case 191: return { key: 'blue' };                 // "/" = search
             case 83: return { key: 'red' };                   // S
+            case 67: return { key: 'yellow' };                // C = countries
         }
         return null;
     };

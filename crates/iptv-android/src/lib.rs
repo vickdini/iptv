@@ -142,6 +142,19 @@ export!(Java_io_github_vickdini_iptv_Core_isLoaded, |_env| Ok(app::is_loaded().t
 // searchText(): the search in effect, or "".
 export!(Java_io_github_vickdini_iptv_Core_searchText, |_env| app::with(|a| Ok(a.search_text())));
 
+// regionsInfo(): countries / languages with channel counts and the current choice.
+export!(Java_io_github_vickdini_iptv_Core_regionsInfo, |_env| app::with(|a| Ok(a.regions_info())));
+
+// setRegions(countriesJson, languagesJson): effects -- JSON arrays of names; both empty = all channels.
+export!(Java_io_github_vickdini_iptv_Core_setRegions, |env, countries: JString<'l>, languages: JString<'l>| {
+    let parse = |s: Option<String>| -> anyhow::Result<Vec<String>> {
+        Ok(serde_json::from_str(&s.unwrap_or_else(|| "[]".into()))?)
+    };
+    let countries = parse(string(env, &countries)?)?;
+    let languages = parse(string(env, &languages)?)?;
+    app::with(|a| Ok(a.set_regions(countries, languages)))
+});
+
 // listInfo(): {"title":..., "current":idx, "status":...}
 export!(Java_io_github_vickdini_iptv_Core_listInfo, |_env| app::with(|a| Ok(a.list_info())));
 

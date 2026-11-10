@@ -48,7 +48,28 @@ pub fn load(source: &str, cache_dir: &Path) -> Result<(Vec<Channel>, Freshness)>
         let text = fs::read_to_string(source).with_context(|| format!("reading {source}"))?;
         (text, Freshness::Local)
     };
-    Ok((parse_m3u(&text), freshness))
+    let mut channels = parse_m3u(&text);
+    if let Some((by_country, by_language)) = companion_urls(source) {
+        // Fetched together (each is a conditional request, so usually cheap).
+        let (c, l) = std::thread::scope(|scope| {
+            let c = scope.spawn(|| load_url(&by_country, cache_dir));
+            let l = scope.spawn(|| load_url(&by_language, cache_dir));
+            (c.join(), l.join())
+        });
+        match (c, l) {
+            (Ok(Ok((c, _))), Ok(Ok((l, _)))) => iptv_core::m3u::tag_regions(&mut channels, &c, &l),
+            _ => eprintln!("warning: country/language lists unavailable; that filter is disabled"),
+        }
+    }
+    Ok((channels, freshness))
+}
+
+/// iptv-org publishes the same streams grouped by country and by language
+/// next to `index.m3u`; returns those URLs for such a playlist.
+pub fn companion_urls(source: &str) -> Option<(String, String)> {
+    let base = source.strip_suffix("/index.m3u")?;
+    (is_url(source) && base.contains("iptv-org"))
+        .then(|| (format!("{base}/index.country.m3u"), format!("{base}/index.language.m3u")))
 }
 
 fn is_url(s: &str) -> bool {
@@ -241,6 +262,19 @@ mod tests {
         assert_eq!((text.as_str(), f), (V2, Freshness::Downloaded));
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn companion_urls_only_for_iptv_org() {
+        assert_eq!(
+            companion_urls("https://iptv-org.github.io/iptv/index.m3u"),
+            Some((
+                "https://iptv-org.github.io/iptv/index.country.m3u".into(),
+                "https://iptv-org.github.io/iptv/index.language.m3u".into()
+            ))
+        );
+        assert_eq!(companion_urls("https://example.com/index.m3u"), None);
+        assert_eq!(companion_urls("https://iptv-org.github.io/iptv/countries/it.m3u"), None);
     }
 
     #[test]

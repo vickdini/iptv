@@ -36,6 +36,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.mediarouter.app.MediaRouteButton
 import android.content.pm.PackageManager
 import android.app.UiModeManager
+import androidx.appcompat.app.AlertDialog
 import android.content.res.Configuration
 import com.google.android.gms.cast.framework.CastButtonFactory
 import com.google.android.gms.cast.framework.CastContext
@@ -139,6 +140,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.groupPrev).setOnClickListener { panelAction("group-prev") }
         findViewById<View>(R.id.groupNext).setOnClickListener { panelAction("group-next") }
         findViewById<View>(R.id.favOnly).setOnClickListener { panelAction("fav-only") }
+        findViewById<View>(R.id.regions).setOnClickListener { chooseRegions() }
         findViewById<View>(R.id.closePanel).setOnClickListener { hidePanel() }
         // Phones and tablets play full screen with the back gesture hidden, so
         // leaving isn't obvious: offer an exit button. TV remotes have Back/Home.
@@ -455,6 +457,63 @@ class MainActivity : AppCompatActivity() {
             else -> return false
         }
         return true
+    }
+
+    // --- countries & languages ------------------------------------------------------
+
+    /** Menu: countries, languages, or show everything again. */
+    private fun chooseRegions() {
+        if (!loaded) return
+        val info = JSONObject(Core.regionsInfo())
+        if (info.getJSONArray("countries").length() == 0 && info.getJSONArray("languages").length() == 0) {
+            AlertDialog.Builder(this).setMessage(R.string.regions_none).setPositiveButton(android.R.string.ok, null).show()
+            return
+        }
+        val chosenC = info.getJSONArray("chosenCountries")
+        val chosenL = info.getJSONArray("chosenLanguages")
+        fun summary(label: String, a: JSONArray) = if (a.length() == 0) label else "$label (${a.length()})"
+        val items = arrayOf(
+            summary(getString(R.string.regions_countries), chosenC),
+            summary(getString(R.string.regions_languages), chosenL),
+            getString(R.string.regions_show_all),
+        )
+        AlertDialog.Builder(this)
+            .setTitle(R.string.regions)
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> pickRegions(info, countries = true)
+                    1 -> pickRegions(info, countries = false)
+                    else -> applyRegions(emptyList(), emptyList())
+                }
+            }
+            .show()
+    }
+
+    /** Checklist of countries (or languages) with their number of working channels. */
+    private fun pickRegions(info: JSONObject, countries: Boolean) {
+        val all = info.getJSONArray(if (countries) "countries" else "languages")
+        val names = Array(all.length()) { all.getJSONArray(it).getString(0) }
+        val labels = Array(all.length()) { "${names[it]}  (${all.getJSONArray(it).getInt(1)})" }
+        val chosen = jsonList(info.getJSONArray(if (countries) "chosenCountries" else "chosenLanguages"))
+        val checked = BooleanArray(names.size) { names[it] in chosen }
+        AlertDialog.Builder(this)
+            .setTitle(if (countries) R.string.regions_countries else R.string.regions_languages)
+            .setMultiChoiceItems(labels, checked) { _, i, on -> checked[i] = on }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val picked = names.filterIndexed { i, _ -> checked[i] }
+                val otherKey = if (countries) "chosenLanguages" else "chosenCountries"
+                val other = jsonList(info.getJSONArray(otherKey))
+                if (countries) applyRegions(picked, other) else applyRegions(other, picked)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun jsonList(a: JSONArray): List<String> = List(a.length()) { a.getString(it) }
+
+    private fun applyRegions(countries: List<String>, languages: List<String>) {
+        perform(Core.setRegions(JSONArray(countries).toString(), JSONArray(languages).toString()))
+        refreshList(keepPosition = false)
     }
 
     /** Android TV, Google TV and Fire TV all report the television UI mode. */

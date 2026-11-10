@@ -210,6 +210,24 @@ impl App {
         self.tuner.set_search(text);
     }
 
+    /// `{"countries":[[name,count]...],"languages":[...],"chosenCountries":[...],"chosenLanguages":[...]}`
+    pub fn regions_info(&self) -> String {
+        let (c, l) = self.tuner.regions();
+        json!({
+            "countries": self.tuner.countries(),
+            "languages": self.tuner.languages(),
+            "chosenCountries": c,
+            "chosenLanguages": l,
+        })
+        .to_string()
+    }
+
+    /// Shows only channels from these countries or in these languages.
+    pub fn set_regions(&mut self, countries: Vec<String>, languages: Vec<String>) -> String {
+        let fx = self.tuner.set_regions(countries, languages);
+        self.effects(fx)
+    }
+
     pub fn search_text(&self) -> String {
         self.tuner.search_text().unwrap_or_default().to_string()
     }

@@ -66,6 +66,7 @@ html, body {
 .red { color: #e53935; }
 .green { color: #43a047; }
 .blue { color: #1e88e5; }
+.yellow { color: #fdd835; }
 
 .search {
     display: block;

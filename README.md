@@ -93,6 +93,7 @@ full screen.
 The channel list has a **Search channels…** box at the top (phone keyboard,
 or the TV's on-screen keyboard: Up from the first channel reaches it).
 
+The 🌐 button in the channel list header chooses countries and languages.
 On phones and tablets, the ⏻ button in the channel list header exits the app
 (it also stops casting).
 
@@ -180,6 +181,7 @@ TVs from 2019 on.
 | INFO | channel info |
 | Red / Green / Yellow | favorite / favorites only / help |
 | Blue (or Up from the first channel in the list) | search by name with the on-screen keyboard |
+| Yellow (in the list) | choose countries and languages |
 | Back | close the list, or exit |
 
 ## Using it
@@ -194,6 +196,7 @@ TVs from 2019 on.
 | Left / Right, m | volume, mute |
 | l / Tab / right-click | open / close the channel list |
 | / or Ctrl+F | search channels by name (see below) |
+| c | choose countries and languages (see below) |
 | g / G | next / previous group (Movies, News, Sports…) |
 | s / S | toggle favorite / zap only through favorites |
 | i | channel info |
@@ -217,6 +220,26 @@ video keeps playing beside it.
 | s | toggle favorite on the selected channel |
 | 0–9 | go to channel number |
 | Esc / l / click on the video | close |
+
+### Countries and languages
+
+Pick the countries and languages you care about, and the app only shows
+channels **from any of those countries or in any of those languages**
+(e.g. *Italy* + *English* shows Italian channels and English-speaking ones).
+The choice applies everywhere (zapping, the channel list, groups, search,
+favorites) and is remembered; with nothing chosen, all channels show.
+Channel numbers don't change, and groups with nothing to show are skipped.
+
+* **Windows:** press **c**. Type to find a name, **Enter** (or click) ticks
+  it, **Tab** switches between countries and languages, **Del** clears the
+  list, **Esc** goes back.
+* **Android:** the 🌐 button in the channel list.
+* **Samsung TV:** **Yellow** in the channel list; ◀ ▶ switch countries /
+  languages, **OK** ticks, **Blue** finds a name, **Back** returns.
+
+The data comes from iptv-org's playlists grouped by country and by language
+(fetched alongside the main playlist, with the same caching), so it is
+available for the default iptv-org playlist.
 
 ### Searching
 

@@ -46,6 +46,12 @@ object Core {
     /** Shows only channels whose name matches [text] (empty: all channels). */
     @JvmStatic external fun setSearch(text: String): String
 
+    /** Countries / languages with channel counts and the current choice (JSON). */
+    @JvmStatic external fun regionsInfo(): String
+
+    /** Shows only channels from these countries or in these languages (JSON arrays); effects. */
+    @JvmStatic external fun setRegions(countries: String, languages: String): String
+
     /** Channel list header: `{"title","status","current"}`. */
     @JvmStatic external fun listInfo(): String
 

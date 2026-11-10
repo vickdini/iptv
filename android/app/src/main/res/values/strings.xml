@@ -10,6 +10,12 @@
     <string name="favorites_only">Favorites only</string>
     <string name="close">Close</string>
     <string name="exit">Exit IPTV</string>
+    <string name="regions">Countries &amp; languages</string>
+    <string name="regions_countries">Countries</string>
+    <string name="regions_languages">Languages</string>
+    <string name="regions_show_all">Show all channels</string>
+    <string name="regions_none">Country and language information isn\'t available for this playlist.</string>
+    <string name="regions_hint">Shows channels from any chosen country or in any chosen language.</string>
     <string name="update_ready">IPTV %1$s is available — installing the update…</string>
     <string name="casting">Playing on your TV (Chromecast)</string>
 </resources>

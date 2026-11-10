@@ -4,7 +4,7 @@
 //! window aspect ratio (`res_x = 0`). The panel occupies the left `PANEL_W`
 //! units, so it keeps the same proportions at any window size.
 
-use iptv_core::{Browser, Tuner};
+use iptv_core::{tuner::normalize, Browser, Tuner};
 
 /// Virtual canvas height.
 pub const H: f64 = 720.0;
@@ -50,18 +50,7 @@ impl Panel {
 
     /// Hit-test a point in virtual canvas coordinates.
     pub fn hit(&self, x: f64, y: f64) -> Hit {
-        if !(0.0..=PANEL_W).contains(&x) || !(0.0..=H).contains(&y) {
-            return Hit::Outside;
-        }
-        let list_top = HEADER_H;
-        let list_bottom = HEADER_H + ROWS as f64 * ROW_H;
-        if !(list_top..list_bottom).contains(&y) {
-            return Hit::Panel;
-        }
-        if x >= PANEL_W - SCROLLBAR_HIT_W && self.browser.len() > ROWS {
-            return Hit::Scrollbar((y - list_top) / (list_bottom - list_top));
-        }
-        Hit::Row(((y - list_top) / ROW_H) as usize)
+        hit_list(x, y, self.browser.len())
     }
 
     /// `status` (e.g. "checking channels 40%") replaces the footer hints.
@@ -78,7 +67,7 @@ impl Panel {
             ),
             None => (
                 tuner.view_title(),
-                "/  search      g / G  group      S  favorites only      digits  jump",
+                "/  search     c  countries     g / G  group     S  favorites     digits  jump",
             ),
         };
         ev.push(text(PAD, 24.0, 26, C_TEXT, true, &title, PANEL_W - PAD));
@@ -130,15 +119,151 @@ impl Panel {
 
         let first = b.scroll() + 1;
         let last = (b.scroll() + ROWS).min(b.len());
-        let footer = match status {
-            Some(status) => format!("{first}–{last} of {}     {status}…", b.len()),
-            None => format!(
+        let footer = match (status, tuner.region_label()) {
+            (Some(status), _) => format!("{first}–{last} of {}     {status}…", b.len()),
+            (None, Some(region)) => format!("{first}–{last} of {}     showing: {region}", b.len()),
+            (None, None) => format!(
                 "{first}–{last} of {}     wheel scroll · click / Enter watch · Esc close",
                 b.len()
             ),
         };
         ev.push(text(PAD, H - FOOTER_H / 2.0, 15, C_DIM, false, &footer, PANEL_W - PAD));
 
+        ev.join("\n")
+    }
+}
+
+/// Hit-test for a list drawn with the panel's geometry (`len` rows in all).
+fn hit_list(x: f64, y: f64, len: usize) -> Hit {
+    if !(0.0..=PANEL_W).contains(&x) || !(0.0..=H).contains(&y) {
+        return Hit::Outside;
+    }
+    let list_top = HEADER_H;
+    let list_bottom = HEADER_H + ROWS as f64 * ROW_H;
+    if !(list_top..list_bottom).contains(&y) {
+        return Hit::Panel;
+    }
+    if x >= PANEL_W - SCROLLBAR_HIT_W && len > ROWS {
+        return Hit::Scrollbar((y - list_top) / (list_bottom - list_top));
+    }
+    Hit::Row(((y - list_top) / ROW_H) as usize)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PickerTab {
+    Countries,
+    Languages,
+}
+
+/// Country / language chooser, drawn in place of the channel list.
+/// Rows have a check box, the name and the number of working channels;
+/// typing narrows the list.
+pub struct Picker {
+    pub tab: PickerTab,
+    pub query: String,
+    all: Vec<(String, usize)>,
+    pub browser: Browser,
+}
+
+impl Picker {
+    pub fn new(tuner: &Tuner) -> Self {
+        let mut p = Self { tab: PickerTab::Countries, query: String::new(), all: Vec::new(), browser: Browser::new(vec![], 0, ROWS) };
+        p.reload(tuner);
+        p
+    }
+
+    /// Reloads names and counts for the current tab and re-applies the typed filter.
+    pub fn reload(&mut self, tuner: &Tuner) {
+        self.all = match self.tab {
+            PickerTab::Countries => tuner.countries(),
+            PickerTab::Languages => tuner.languages(),
+        };
+        self.refilter();
+    }
+
+    pub fn refilter(&mut self) {
+        let q = normalize(self.query.trim());
+        let items = (0..self.all.len()).filter(|&i| normalize(&self.all[i].0).contains(&q)).collect();
+        self.browser.set_items(items, 0);
+    }
+
+    pub fn switch_tab(&mut self, tuner: &Tuner) {
+        self.tab = match self.tab {
+            PickerTab::Countries => PickerTab::Languages,
+            PickerTab::Languages => PickerTab::Countries,
+        };
+        self.query.clear();
+        self.reload(tuner);
+    }
+
+    pub fn selected_name(&self) -> Option<&str> {
+        self.browser.selected_channel().map(|i| self.all[i].0.as_str())
+    }
+
+    pub fn hit(&self, x: f64, y: f64) -> Hit {
+        hit_list(x, y, self.browser.len())
+    }
+
+    pub fn render(&self, tuner: &Tuner) -> String {
+        let mut ev: Vec<String> = Vec::new();
+        let b = &self.browser;
+        let (countries, languages) = tuner.regions();
+        let (chosen, name, other) = match self.tab {
+            PickerTab::Countries => (&countries, "Countries", "languages"),
+            PickerTab::Languages => (&languages, "Languages", "countries"),
+        };
+
+        ev.push(rect(0.0, 0.0, PANEL_W, H, C_BG, 0x30));
+        let title = if self.query.is_empty() {
+            match chosen.len() {
+                0 => name.to_string(),
+                n => format!("{name} · {n} chosen"),
+            }
+        } else {
+            format!("{name}: {}_", self.query)
+        };
+        ev.push(text(PAD, 24.0, 26, C_TEXT, true, &title, PANEL_W - PAD));
+        let hint = format!("type to find     Enter  tick     Tab  {other}     Del  clear     Esc  back");
+        ev.push(text(PAD, 48.0, 15, C_DIM, false, &hint, PANEL_W - PAD));
+        ev.push(rect(PAD, HEADER_H - 4.0, PANEL_W - PAD, HEADER_H - 3.0, C_DIM, 0x90));
+
+        if self.all.is_empty() {
+            ev.push(text(PAD, HEADER_H + ROW_H, 20, C_DIM, false, "Not available for this playlist", PANEL_W));
+        } else if b.is_empty() {
+            ev.push(text(PAD, HEADER_H + ROW_H, 20, C_DIM, false, "Nothing matches", PANEL_W));
+        }
+
+        let right = PANEL_W - SCROLLBAR_HIT_W;
+        for (row, i, selected) in b.visible() {
+            let top = HEADER_H + row as f64 * ROW_H;
+            let mid = top + ROW_H / 2.0;
+            if selected {
+                ev.push(rect(4.0, top + 1.0, PANEL_W - SCROLLBAR_HIT_W + 4.0, top + ROW_H - 1.0, C_SELECT, 0x20));
+            }
+            let (label, count) = &self.all[i];
+            let on = chosen.contains(label);
+            let mark = if on { "☑" } else { "☐" };
+            let color = if on { C_PLAYING } else { C_TEXT };
+            ev.push(text(PAD + 8.0, mid, 20, color, on, &format!("{mark}  {label}"), right - 70.0));
+            ev.push(format!("{{\\an6\\pos({},{mid})\\fs17\\bord0\\shad0\\1c&H{C_DIM}&}}{count}", right - 8.0));
+        }
+
+        if b.len() > ROWS {
+            let top = HEADER_H;
+            let height = ROWS as f64 * ROW_H;
+            let x0 = PANEL_W - PAD / 2.0 - SCROLLBAR_W;
+            ev.push(rect(x0, top, x0 + SCROLLBAR_W, top + height, C_DIM, 0xC0));
+            let thumb_h = (height * ROWS as f64 / b.len() as f64).max(24.0);
+            let max_scroll = (b.len() - ROWS) as f64;
+            let thumb_y = top + (height - thumb_h) * b.scroll() as f64 / max_scroll;
+            ev.push(rect(x0, thumb_y, x0 + SCROLLBAR_W, thumb_y + thumb_h, C_TEXT, 0x40));
+        }
+
+        let footer = match tuner.region_label() {
+            Some(region) => format!("showing channels from / in: {region}"),
+            None => "nothing chosen: showing all channels".to_string(),
+        };
+        ev.push(text(PAD, H - FOOTER_H / 2.0, 15, C_DIM, false, &footer, PANEL_W - PAD));
         ev.join("\n")
     }
 }

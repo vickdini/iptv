@@ -19,6 +19,44 @@ pub struct Channel {
     pub groups: Vec<String>,
     pub user_agent: Option<String>,
     pub referrer: Option<String>,
+    /// Countries the channel is from (see [`tag_regions`]).
+    #[serde(default)]
+    pub countries: Vec<String>,
+    /// Languages it broadcasts in (see [`tag_regions`]).
+    #[serde(default)]
+    pub languages: Vec<String>,
+}
+
+/// Stream URL -> its `group-title`s, for a playlist grouped by something
+/// (iptv-org publishes the same streams grouped by country and by language).
+pub fn groups_by_url(playlist: &str) -> std::collections::HashMap<String, Vec<String>> {
+    let mut map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for ch in parse(playlist) {
+        let entry = map.entry(ch.url).or_default();
+        for g in ch.groups {
+            if !entry.contains(&g) {
+                entry.push(g);
+            }
+        }
+    }
+    map
+}
+
+/// Fills in each channel's countries and languages from iptv-org's
+/// `index.country.m3u` and `index.language.m3u` (same streams, grouped by
+/// country / language), matching by stream URL. "Undefined" is dropped.
+pub fn tag_regions(channels: &mut [Channel], by_country: &str, by_language: &str) {
+    let countries = groups_by_url(by_country);
+    let languages = groups_by_url(by_language);
+    let known = |v: &Vec<String>| v.iter().filter(|g| *g != "Undefined").cloned().collect::<Vec<_>>();
+    for ch in channels {
+        if let Some(c) = countries.get(&ch.url) {
+            ch.countries = known(c);
+        }
+        if let Some(l) = languages.get(&ch.url) {
+            ch.languages = known(l);
+        }
+    }
 }
 
 pub fn parse(input: &str) -> Vec<Channel> {
@@ -180,6 +218,20 @@ http://bare/url.m3u8
 
         assert_eq!(chs[3].name, "http://bare/url.m3u8");
         assert!(chs[3].groups.is_empty());
+    }
+
+    #[test]
+    fn tags_countries_and_languages_by_url() {
+        let mut chs = parse("#EXTM3U\n#EXTINF:-1,A\nhttp://a\n#EXTINF:-1,B\nhttp://b\n#EXTINF:-1,C\nhttp://c\n");
+        let by_country = "#EXTM3U\n#EXTINF:-1 group-title=\"Italy\",A\nhttp://a\n\
+            #EXTINF:-1 group-title=\"Switzerland\",A\nhttp://a\n#EXTINF:-1 group-title=\"Undefined\",C\nhttp://c\n";
+        let by_language = "#EXTM3U\n#EXTINF:-1 group-title=\"Italian\",A\nhttp://a\n#EXTINF:-1 group-title=\"English\",B\nhttp://b\n";
+        tag_regions(&mut chs, by_country, by_language);
+        assert_eq!(chs[0].countries, vec!["Italy", "Switzerland"]);
+        assert_eq!(chs[0].languages, vec!["Italian"]);
+        assert_eq!(chs[1].languages, vec!["English"]);
+        assert!(chs[1].countries.is_empty());
+        assert!(chs[2].countries.is_empty()); // "Undefined" dropped
     }
 
     #[test]
