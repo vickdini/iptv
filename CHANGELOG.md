@@ -6,6 +6,19 @@ What's new in each version of IPTV. Downloads for every version are on the
 When releasing, add a section for the new version at the top. The release
 workflow uses that section as the release notes.
 
+## [Unreleased]
+
+### Added
+- **Phone remote:** control IPTV from your phone's browser, on Android or
+  iPhone, with nothing to install. You can browse and search every channel
+  and tap one to watch it, and the remote also has favorites, channel up /
+  down, previous channel, volume, mute, audio language and subtitles.
+  - Computers: press **r** to show a QR code.
+  - Android TV, Google TV and Fire TV: the phone remote button in the
+    channel list.
+  - The remote works on your home Wi-Fi only, and phones need the PIN shown
+    on the TV.
+
 ## [0.8.0] - 2026-11-11
 
 ### Added

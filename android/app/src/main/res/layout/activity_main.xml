@@ -96,6 +96,17 @@
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_regions" />
 
+            <!-- Phone remote: shows a QR code to control this device from a phone. -->
+            <ImageButton
+                android:id="@+id/phoneRemote"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="@drawable/item_bg"
+                android:contentDescription="@string/remote"
+                android:padding="10dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_phone_remote" />
+
             <!-- Audio language & subtitles (only on channels that offer a choice). -->
             <ImageButton
                 android:id="@+id/tracks"

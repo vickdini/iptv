@@ -216,6 +216,36 @@ export!(
     }
 );
 
+// remoteEnabled(): "true" if the phone remote was turned on before.
+export!(Java_io_github_vickdini_iptv_Core_remoteEnabled, |_env| {
+    app::with(|a| Ok(a.remote_enabled().to_string()))
+});
+
+// remoteStart(): {"address","pin","qrSize","qr"} -- starts the phone remote once.
+export!(Java_io_github_vickdini_iptv_Core_remoteStart, |_env| {
+    app::with(|a| a.remote_start())
+});
+
+// remotePlayer(json): the player's tracks / volume for phones.
+export!(
+    Java_io_github_vickdini_iptv_Core_remotePlayer,
+    |env, info: JString<'l>| {
+        let info = string(env, &info)?.unwrap_or_default();
+        app::with(|a| {
+            a.remote_player(&info);
+            Ok(String::new())
+        })
+    }
+);
+
+// remoteNext(timeoutMs): a phone's request as JSON, or "" -- blocking, own thread.
+export!(
+    Java_io_github_vickdini_iptv_Core_remoteNext,
+    |_env, timeout_ms: jint| Ok(app::remote_next(std::time::Duration::from_millis(
+        timeout_ms.max(0) as u64
+    )))
+);
+
 // listInfo(): {"title":..., "current":idx, "status":...}
 export!(
     Java_io_github_vickdini_iptv_Core_listInfo,

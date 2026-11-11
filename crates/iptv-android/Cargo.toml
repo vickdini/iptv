@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 iptv-core = { path = "../iptv-core" }
 iptv-net = { path = "../iptv-net" }
+iptv-remote = { path = "../iptv-remote" }
 anyhow = "1"
 jni = "0.21"
 serde = { version = "1", features = ["derive"] }

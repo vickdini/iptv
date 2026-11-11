@@ -17,6 +17,8 @@ use iptv_net::{
     health::{self, CheckResult, HealthCache, Probe},
     playlist, DEFAULT_USER_AGENT,
 };
+use iptv_remote::{Command, Remote, Snapshot, TrackInfo};
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 struct Dirs {
@@ -26,6 +28,10 @@ struct Dirs {
 
 static DIRS: Mutex<Option<Dirs>> = Mutex::new(None);
 static APP: Mutex<Option<App>> = Mutex::new(None);
+/// The phone remote's server lives for the whole process (it survives the
+/// playlist being reloaded); its commands are read by the UI's remote thread.
+static REMOTE: Mutex<Option<Remote>> = Mutex::new(None);
+static REMOTE_RX: Mutex<Option<std::sync::mpsc::Receiver<Command>>> = Mutex::new(None);
 
 pub fn init(cache: PathBuf, config: PathBuf) {
     *DIRS.lock().unwrap() = Some(Dirs { cache, config });
@@ -46,6 +52,10 @@ pub fn load_playlist(url: &str) -> Result<String> {
     }
     let n = channels.len();
     let app = App::new(channels, cache, config, true);
+    if let Some(remote) = REMOTE.lock().unwrap().as_ref() {
+        let fresh = Snapshot::from_tuner(&app.tuner);
+        remote.update(|s| *s = fresh);
+    }
     // Replacing the old app (if any) drops it, which stops its checks.
     *APP.lock().unwrap() = Some(app);
     Ok(json!({ "channels": n, "freshness": format!("{freshness:?}") }).to_string())
@@ -78,6 +88,8 @@ pub struct App {
     check_done: usize,
     /// Number of tunes so far; identifies the stream the player reports on.
     tune_seq: u64,
+    /// What the player reports for the phone remote (tracks, volume).
+    player: PlayerInfo,
     /// Check results are saved periodically: Android may kill the app
     /// without warning, losing anything not on disk.
     last_save: Instant,
@@ -141,6 +153,7 @@ impl App {
             check_total,
             check_done: 0,
             tune_seq: 0,
+            player: PlayerInfo::default(),
             last_save: Instant::now(),
         }
     }
@@ -224,7 +237,71 @@ impl App {
             self.health.save_if_dirty();
             self.last_save = Instant::now();
         }
+        if changed {
+            self.sync_remote();
+        }
         json!({ "changed": changed, "status": self.status() }).to_string()
+    }
+
+    // --- phone remote -----------------------------------------------------------
+
+    /// Whether the phone remote was turned on before (it then starts with the app).
+    pub fn remote_enabled(&self) -> bool {
+        self.tuner.remote_pin().is_some()
+    }
+
+    /// Starts the phone remote (once) and returns how to connect:
+    /// `{"address","pin","qrSize","qr":"0101..."}` (address null without a network).
+    pub fn remote_start(&mut self) -> Result<String> {
+        let mut slot = REMOTE.lock().unwrap();
+        if slot.is_none() {
+            let pin = match self.tuner.remote_pin() {
+                Some(p) => p.to_string(),
+                None => {
+                    let pin = iptv_remote::new_pin();
+                    self.tuner.set_remote_pin(Some(pin.clone()));
+                    self.save_state();
+                    pin
+                }
+            };
+            let (server, rx) = Remote::start(pin, Snapshot::from_tuner(&self.tuner))?;
+            *REMOTE_RX.lock().unwrap() = Some(rx);
+            *slot = Some(server);
+        }
+        let server = slot.as_ref().expect("started");
+        let qr = server.pairing_url().as_deref().and_then(iptv_remote::qr);
+        drop(slot);
+        self.sync_remote();
+        let slot = REMOTE.lock().unwrap();
+        let server = slot.as_ref().expect("started");
+        Ok(json!({
+            "address": server.address(),
+            "pin": server.pin(),
+            "qrSize": qr.as_ref().map(|q| q.0),
+            "qr": qr.map(|(_, dark)| dark.iter().map(|d| if *d { '1' } else { '0' }).collect::<String>()),
+        })
+        .to_string())
+    }
+
+    /// The player's tracks and volume: `{"audio":[{id,label,selected}],"subs":[...],"volume":n,"muted":b}`.
+    pub fn remote_player(&mut self, info: &str) {
+        if let Ok(p) = serde_json::from_str(info) {
+            self.player = p;
+            self.sync_remote();
+        }
+    }
+
+    /// Tells phones what is on now.
+    fn sync_remote(&self) {
+        let slot = REMOTE.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(server) = slot.as_ref() else { return };
+        server.update(|s| {
+            s.refresh(&self.tuner);
+            s.audio = self.player.audio.clone();
+            s.subs = self.player.subs.clone();
+            s.volume = self.player.volume;
+            s.muted = self.player.muted;
+        });
     }
 
     /// Shows only channels matching `text` (empty: all channels).
@@ -350,7 +427,35 @@ impl App {
                 Effect::Save => self.save_state(),
             }
         }
+        self.sync_remote();
         Value::Array(out).to_string()
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct PlayerInfo {
+    #[serde(default)]
+    audio: Vec<TrackInfo>,
+    #[serde(default)]
+    subs: Vec<TrackInfo>,
+    #[serde(default)]
+    volume: Option<u32>,
+    #[serde(default)]
+    muted: bool,
+}
+
+/// Waits up to `timeout` for a phone's request: its JSON, or "" if none.
+/// Called in a loop by the app's remote thread (not under the app lock).
+pub fn remote_next(timeout: Duration) -> String {
+    let rx = REMOTE_RX.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(rx) = rx.as_ref() else {
+        drop(rx);
+        std::thread::sleep(timeout);
+        return String::new();
+    };
+    match rx.recv_timeout(timeout) {
+        Ok(cmd) => serde_json::to_string(&cmd).unwrap_or_default(),
+        Err(_) => String::new(),
     }
 }
 

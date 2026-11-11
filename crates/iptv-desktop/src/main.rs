@@ -13,6 +13,7 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use iptv_core::{lang::language_codes, tuner::DIGIT_TIMEOUT_MS, Action, Effect, Tuner};
 use iptv_net::{health, playlist, DEFAULT_USER_AGENT};
+use iptv_remote::{self as remote, Remote};
 use serde_json::json;
 use tokio::time::Instant;
 
@@ -27,6 +28,8 @@ const PANEL_OVERLAY_ID: u32 = 1;
 /// The "this channel has other languages" hint at the bottom.
 const HINT_OVERLAY_ID: u32 = 2;
 const HINT_MS: u64 = 6000;
+/// The phone remote's QR card.
+const REMOTE_OVERLAY_ID: u32 = 3;
 const WHEEL_ROWS: isize = 3;
 
 /// Watch IPTV like a TV: zap channels with Up/Down, type channel numbers,
@@ -73,6 +76,10 @@ struct Args {
     /// Don't check for or install new versions.
     #[arg(long)]
     no_update: bool,
+
+    /// Don't start the phone remote (even if it was turned on before).
+    #[arg(long)]
+    no_remote: bool,
 
     /// Initial volume (0-100).
     #[arg(long, value_parser = clap::value_parser!(u8).range(0..=100))]
@@ -219,6 +226,8 @@ async fn run(args: Args) -> Result<()> {
         if args.no_check { 0 } else { check_total }
     );
 
+    // Phone remote requests, forwarded from the remote's server threads.
+    let (remote_tx, mut remote_rx) = tokio::sync::mpsc::unbounded_channel();
     let mut app = App {
         player,
         tuner,
@@ -239,9 +248,21 @@ async fn run(args: Args) -> Result<()> {
         tracks: Vec::new(),
         hinted_seq: 0,
         hint_until: None,
+        remote: None,
+        remote_tx,
+        remote_card: false,
+        volume: None,
+        muted: false,
     };
     let fx = app.tuner.start();
     app.apply(fx).await?;
+    // Once turned on (r), the phone remote starts with the app, so a phone
+    // that bookmarked it just works.
+    if !args.no_remote && app.tuner.remote_pin().is_some() {
+        if let Err(e) = app.start_remote() {
+            eprintln!("warning: phone remote not available: {e:#}");
+        }
+    }
 
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     let mut last_save = Instant::now();
@@ -302,6 +323,14 @@ async fn run(args: Args) -> Result<()> {
                     app.redraw().await?;
                 }
                 Some(Event::Tracks(tracks)) => app.on_tracks(tracks).await?,
+                Some(Event::Volume(v)) => {
+                    app.volume = Some(v);
+                    app.sync_remote();
+                }
+                Some(Event::Muted(m)) => {
+                    app.muted = m;
+                    app.sync_remote();
+                }
             },
             res = checks.recv(), if checks_open => match res {
                 Some(r) => app.on_check(r),
@@ -315,7 +344,11 @@ async fn run(args: Args) -> Result<()> {
                     app.view_dirty = true;
                 }
             },
+            Some(cmd) = remote_rx.recv() => app.on_remote(cmd).await?,
             _ = tick.tick() => {
+                if app.view_dirty {
+                    app.sync_remote();
+                }
                 if app.view_dirty || (app.panel.is_some() && checks_open) {
                     app.view_dirty = false;
                     app.refresh_panel().await?;
@@ -402,6 +435,14 @@ struct App {
     hinted_seq: u64,
     /// When to hide the language hint.
     hint_until: Option<Instant>,
+    /// The phone remote's web server, once turned on.
+    remote: Option<Remote>,
+    /// Where the remote's commands are forwarded (into the main loop).
+    remote_tx: tokio::sync::mpsc::UnboundedSender<remote::Command>,
+    /// The QR card is showing.
+    remote_card: bool,
+    volume: Option<f64>,
+    muted: bool,
 }
 
 /// What a letter key does when not typing a search.
@@ -416,6 +457,7 @@ fn shortcut(c: &str) -> Option<&'static str> {
         "h" | "?" => "help",
         "/" => "search",
         "c" => "regions",
+        "r" => "remote",
         "a" => "audio",
         "t" => "subtitles",
         "f" => "fullscreen",
@@ -456,6 +498,7 @@ impl App {
     /// other languages or subtitles, say so (and how to pick them).
     async fn on_tracks(&mut self, tracks: Vec<Track>) -> Result<()> {
         self.tracks = tracks;
+        self.sync_remote();
         let audio = self.choices(TrackKind::Audio).len();
         let subs = self.choices(TrackKind::Sub).len();
         if (audio < 2 && subs == 0) || self.hinted_seq == self.tune_seq {
@@ -514,6 +557,18 @@ impl App {
             (false, None) => Some(0),
             (false, Some(p)) => (p + 1 < list.len()).then_some(p + 1),
         };
+        self.select_track(kind, next, &list).await
+    }
+
+    /// Plays `list[next]` (None: subtitles off), remembers its language for
+    /// other channels and says so on screen.
+    async fn select_track(
+        &mut self,
+        kind: TrackKind,
+        next: Option<usize>,
+        list: &[Track],
+    ) -> Result<()> {
+        let audio = kind == TrackKind::Audio;
         let (audio_pref, sub_pref) = self.tuner.track_prefs();
         let text = match next {
             Some(i) => {
@@ -542,7 +597,150 @@ impl App {
         for t in self.tracks.iter_mut().filter(|t| t.kind == kind) {
             t.selected = Some(t.id) == chosen;
         }
+        self.sync_remote();
         self.player.show_text(&text, 3000).await
+    }
+
+    // --- phone remote ---------------------------------------------------------
+
+    /// Starts the remote's web server (creating its PIN the first time).
+    fn start_remote(&mut self) -> Result<()> {
+        if self.remote.is_some() {
+            return Ok(());
+        }
+        let pin = match self.tuner.remote_pin() {
+            Some(p) => p.to_string(),
+            None => {
+                let pin = remote::new_pin();
+                self.tuner.set_remote_pin(Some(pin.clone()));
+                storage::save_state(&self.tuner.state());
+                pin
+            }
+        };
+        let (server, rx) = Remote::start(pin, remote::Snapshot::from_tuner(&self.tuner))
+            .context("could not start the phone remote")?;
+        eprintln!(
+            "Phone remote: {} (PIN {})",
+            server
+                .address()
+                .unwrap_or_else(|| format!("port {}", server.port())),
+            server.pin()
+        );
+        // The server's threads hand commands over here; forward them into
+        // the async main loop.
+        let tx = self.remote_tx.clone();
+        std::thread::spawn(move || {
+            while let Ok(cmd) = rx.recv() {
+                if tx.send(cmd).is_err() {
+                    break;
+                }
+            }
+        });
+        self.remote = Some(server);
+        self.sync_remote();
+        Ok(())
+    }
+
+    /// `r`: turns the remote on and shows how to connect a phone.
+    async fn open_remote_card(&mut self) -> Result<()> {
+        if let Err(e) = self.start_remote() {
+            return self.player.show_text(&format!("{e:#}"), 5000).await;
+        }
+        if self.panel.is_some() {
+            self.close_panel().await?;
+        }
+        let Some(server) = &self.remote else {
+            return Ok(());
+        };
+        let url = server.pairing_url();
+        let code = url.as_deref().and_then(remote::qr);
+        let address = server.address().unwrap_or_default();
+        let ass = match &code {
+            Some(code) => panel::remote_card(Some(panel::Pairing {
+                address: &address,
+                pin: server.pin(),
+                qr: code,
+            })),
+            None => panel::remote_card(None),
+        };
+        self.remote_card = true;
+        self.player.show_text("", 1).await?;
+        self.player.overlay(REMOTE_OVERLAY_ID, &ass, panel::H).await
+    }
+
+    async fn close_remote_card(&mut self) -> Result<()> {
+        self.remote_card = false;
+        self.player.remove_overlay(REMOTE_OVERLAY_ID).await
+    }
+
+    /// Tells phones what is on now (channel, favorites, tracks, volume).
+    fn sync_remote(&self) {
+        let Some(server) = &self.remote else { return };
+        let info = |kind| -> Vec<remote::TrackInfo> {
+            self.choices(kind)
+                .into_iter()
+                .map(|t| remote::TrackInfo {
+                    id: t.id,
+                    label: t.label(),
+                    selected: t.selected,
+                })
+                .collect()
+        };
+        let (audio, subs) = (info(TrackKind::Audio), info(TrackKind::Sub));
+        server.update(|s| {
+            s.refresh(&self.tuner);
+            s.audio = audio;
+            s.subs = subs;
+            s.volume = self.volume.map(|v| v.round().max(0.0) as u32);
+            s.muted = self.muted;
+        });
+    }
+
+    /// A request from a phone.
+    async fn on_remote(&mut self, cmd: remote::Command) -> Result<()> {
+        if self.debug {
+            eprintln!("remote: {cmd:?}");
+        }
+        match cmd {
+            remote::Command::Action { name, arg } => match Action::from_name(&name, arg.as_deref())
+            {
+                Some(action) => self.run(action).await,
+                None => Ok(()),
+            },
+            remote::Command::Tune { idx } => {
+                let fx = self.tuner.tune_to(idx);
+                self.apply(fx).await
+            }
+            remote::Command::Fav { idx } => {
+                let fx = self.tuner.toggle_favorite_at(idx);
+                self.apply(fx).await
+            }
+            remote::Command::Volume { delta } => {
+                self.player
+                    .command(json!(["osd-msg-bar", "add", "volume", delta]))
+                    .await
+            }
+            remote::Command::Mute => {
+                self.player
+                    .command(json!(["osd-msg", "cycle", "mute"]))
+                    .await
+            }
+            remote::Command::Track { kind, id } => {
+                let kind = match kind {
+                    remote::TrackKind::Audio => TrackKind::Audio,
+                    remote::TrackKind::Sub => TrackKind::Sub,
+                };
+                let list = self.choices(kind);
+                match id {
+                    Some(id) => match list.iter().position(|t| t.id == id) {
+                        Some(i) => self.select_track(kind, Some(i), &list).await,
+                        None => Ok(()),
+                    },
+                    None if kind == TrackKind::Sub => self.select_track(kind, None, &list).await,
+                    None => Ok(()),
+                }
+            }
+        }
     }
 
     /// The current stream failed: hide it and quietly move on.
@@ -580,6 +778,9 @@ impl App {
         if self.debug {
             eprintln!("key: {name} {}", arg.unwrap_or_default());
         }
+        if self.remote_card {
+            return self.close_remote_card().await;
+        }
         if self.picker.is_some() {
             return self.picker_key(name, arg).await;
         }
@@ -597,6 +798,7 @@ impl App {
         match name {
             "search" => return self.start_search().await,
             "regions" => return self.open_picker().await,
+            "remote" => return self.open_remote_card().await,
             "fullscreen" => return self.player.command(json!(["cycle", "fullscreen"])).await,
             "mute" => return self.player.command(json!(["cycle", "mute"])).await,
             "audio" => return self.cycle_track(TrackKind::Audio).await,
@@ -1002,6 +1204,7 @@ impl App {
             }
             self.redraw().await?;
         }
+        self.sync_remote();
         Ok(())
     }
 }

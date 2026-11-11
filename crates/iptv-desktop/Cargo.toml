@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 iptv-core = { path = "../iptv-core" }
 iptv-net = { path = "../iptv-net" }
+iptv-remote = { path = "../iptv-remote" }
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 dirs = "6"

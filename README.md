@@ -241,6 +241,7 @@ TVs from 2019 on.
 | / or Ctrl+F | search channels by name (see below) |
 | c | choose countries and languages (see below) |
 | a / t | next audio language / next subtitles (and off), see below |
+| r | phone remote: shows a QR code to control IPTV from your phone (see below) |
 | g / G | next / previous group (Movies, News, Sports…) |
 | s / S | toggle favorite / zap only through favorites |
 | i | channel info |
@@ -284,6 +285,26 @@ Channel numbers don't change, and groups with nothing to show are skipped.
 The data comes from iptv-org's playlists grouped by country and by language
 (fetched alongside the main playlist, with the same caching), so it is
 available for the default iptv-org playlist.
+
+### Phone remote
+
+Control IPTV from your phone: browse and search every channel, tap one to
+watch it, star favorites, change channel, volume, audio language and
+subtitles. It's a web page served by IPTV itself on your home network, so it
+works on any phone (Android or iPhone) with nothing to install.
+
+1. On the computer press **r**; on Android TV / Google TV / Fire TV open the
+   channel list and choose the **phone remote** button (next to 🌐). A QR code
+   appears.
+2. Scan it with the phone's camera (the phone must be on the same Wi-Fi), or
+   open the address shown and type the PIN.
+
+The page remembers the PIN, so bookmark it or add it to your home screen;
+once turned on, the remote starts with the app. Only phones that know the PIN
+can use it, and repeated wrong PINs lock it for a few minutes. The first time,
+Windows (and macOS, if its firewall is on) asks whether to allow IPTV on the
+network: allow it on **private** networks. `--no-remote` turns it off on the
+desktop. Samsung TVs don't support it yet.
 
 ### Audio languages and subtitles
 

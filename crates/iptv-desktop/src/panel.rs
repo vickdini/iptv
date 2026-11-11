@@ -424,6 +424,128 @@ impl Picker {
 }
 
 /// Filled rectangle. `alpha` 0 = opaque, 255 = invisible.
+/// The phone remote card: a QR code to scan, the address and PIN to type
+/// instead. `pairing` is None when this computer has no network address.
+/// How a phone connects to the remote: what [`remote_card`] shows.
+pub struct Pairing<'a> {
+    pub address: &'a str,
+    pub pin: &'a str,
+    /// QR code width and its dark modules.
+    pub qr: &'a (usize, Vec<bool>),
+}
+
+pub fn remote_card(pairing: Option<Pairing>) -> String {
+    let (x0, y0, w) = (40.0, 40.0, 660.0);
+    let x1 = x0 + w;
+    let mut ev = Vec::new();
+    let Some(Pairing {
+        address,
+        pin,
+        qr: (size, dark),
+    }) = pairing
+    else {
+        ev.push(rect(x0, y0, x1, y0 + 150.0, C_BG, 0x10));
+        ev.push(text(
+            x0 + PAD * 2.0,
+            y0 + 45.0,
+            30,
+            C_TEXT,
+            true,
+            "Phone remote",
+            x1,
+        ));
+        ev.push(text(
+            x0 + PAD * 2.0,
+            y0 + 95.0,
+            22,
+            C_DIM,
+            false,
+            "This computer isn't connected to a network.",
+            x1,
+        ));
+        return ev.join("\n");
+    };
+    let module = 8.0;
+    let quiet = 4.0; // white margin scanners need, in modules
+    let side = (*size as f64 + 2.0 * quiet) * module;
+    let qr_y = y0 + 80.0;
+    let y1 = qr_y + side + 190.0;
+    ev.push(rect(x0, y0, x1, y1, C_BG, 0x10));
+    ev.push(text(
+        x0 + PAD * 2.0,
+        y0 + 42.0,
+        30,
+        C_TEXT,
+        true,
+        "Phone remote",
+        x1,
+    ));
+    let qx = x0 + (w - side) / 2.0;
+    ev.push(rect(qx, qr_y, qx + side, qr_y + side, "FFFFFF", 0));
+    // Dark modules, one rectangle per horizontal run.
+    let mut path = String::new();
+    for row in 0..*size {
+        let mut col = 0;
+        while col < *size {
+            if !dark[row * size + col] {
+                col += 1;
+                continue;
+            }
+            let start = col;
+            while col < *size && dark[row * size + col] {
+                col += 1;
+            }
+            let (ax, ay) = (
+                qx + (start as f64 + quiet) * module,
+                qr_y + (row as f64 + quiet) * module,
+            );
+            let (bx, by) = (qx + (col as f64 + quiet) * module, ay + module);
+            path.push_str(&format!("m {ax} {ay} l {bx} {ay} {bx} {by} {ax} {by} "));
+        }
+    }
+    ev.push(format!(
+        "{{\\an7\\pos(0,0)\\bord0\\shad0\\1c&H000000&\\1a&H00&\\p1}}{path}{{\\p0}}"
+    ));
+    let t = qr_y + side + 34.0;
+    ev.push(text(
+        x0 + PAD * 2.0,
+        t,
+        22,
+        C_TEXT,
+        false,
+        "Scan with your phone's camera (same Wi-Fi as this computer),",
+        x1 - PAD,
+    ));
+    ev.push(text(
+        x0 + PAD * 2.0,
+        t + 36.0,
+        22,
+        C_TEXT,
+        false,
+        &format!("or open  {address}"),
+        x1 - PAD,
+    ));
+    ev.push(text(
+        x0 + PAD * 2.0,
+        t + 72.0,
+        22,
+        C_TEXT,
+        false,
+        &format!("and enter the PIN  {pin}"),
+        x1 - PAD,
+    ));
+    ev.push(text(
+        x0 + PAD * 2.0,
+        t + 120.0,
+        18,
+        C_DIM,
+        false,
+        "Any key closes this card. The remote keeps working.",
+        x1 - PAD,
+    ));
+    ev.join("\n")
+}
+
 /// A one-line note on a dark box at the bottom left (over the video).
 pub fn hint(msg: &str) -> String {
     const SIZE: u32 = 24;

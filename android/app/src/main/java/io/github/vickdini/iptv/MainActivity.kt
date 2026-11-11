@@ -41,6 +41,11 @@ import androidx.media3.common.MediaMetadata
 import androidx.mediarouter.app.MediaRouteButton
 import android.content.pm.PackageManager
 import android.app.UiModeManager
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.media.AudioManager
+import android.widget.ImageView
+import android.widget.LinearLayout
 import androidx.appcompat.app.AlertDialog
 import android.content.res.Configuration
 import com.google.android.gms.cast.framework.CastButtonFactory
@@ -80,6 +85,10 @@ class MainActivity : AppCompatActivity() {
     private var settingSearch = false
     private lateinit var adapter: ChannelAdapter
     private lateinit var tracksButton: View
+    /** The thread carrying out phone remote requests, once started. */
+    private var remoteThread: Thread? = null
+    /** Last tracks / volume sent to phones (sent again only when it changes). */
+    private var lastPlayerInfo = ""
     /** Tune [currentSeq] whose language hint was shown. */
     private var hintedSeq = -1
 
@@ -150,6 +159,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.favOnly).setOnClickListener { panelAction("fav-only") }
         findViewById<View>(R.id.regions).setOnClickListener { chooseRegions() }
         tracksButton = findViewById<View>(R.id.tracks).apply { setOnClickListener { chooseTracks() } }
+        findViewById<View>(R.id.phoneRemote).setOnClickListener { showRemote() }
         findViewById<View>(R.id.closePanel).setOnClickListener { hidePanel() }
         // Phones and tablets play full screen with the back gesture hidden, so
         // leaving isn't obvious: offer an exit button. TV remotes have Back/Home.
@@ -210,6 +220,8 @@ class MainActivity : AppCompatActivity() {
                     perform(Core.start())
                     handler.removeCallbacks(pollTask)
                     handler.post(pollTask)
+                    // Turned on once, the phone remote starts with the app.
+                    if (Core.remoteEnabled() == "true") startRemote()
                     if (!resuming) checkForUpdate()
                 }.onFailure { e ->
                     status.text = getString(R.string.load_failed, e.message ?: "")
@@ -374,6 +386,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun poll() {
         if (!loaded) return
+        reportPlayer()
         val r = JSONObject(Core.poll())
         if (r.getBoolean("changed")) refreshPending = true
         if (panel.visibility != View.VISIBLE) return
@@ -516,6 +529,7 @@ class MainActivity : AppCompatActivity() {
         val subs = tracksOf(C.TRACK_TYPE_TEXT).size
         val choice = audio > 1 || subs > 0
         tracksButton.visibility = if (choice) View.VISIBLE else View.GONE
+        reportPlayer()
         if (!choice || hintedSeq == currentSeq || casting) return
         hintedSeq = currentSeq
         val parts = listOfNotNull(
@@ -605,6 +619,118 @@ class MainActivity : AppCompatActivity() {
             "$what: ${track.label(i + 1)}   (${i + 1}/${list.size})"
         }
         showOsd(text, 2500)
+    }
+
+    // --- phone remote ---------------------------------------------------------------
+
+    /** Starts the remote (once) and returns how to connect, or null if it failed. */
+    private fun startRemote(): JSONObject? {
+        val info = runCatching { JSONObject(Core.remoteStart()) }.getOrElse { e ->
+            Log.w(TAG, "phone remote", e)
+            showOsd(getString(R.string.remote_failed, e.message ?: ""), 5000)
+            return null
+        }
+        if (remoteThread == null) {
+            remoteThread = Thread({
+                while (true) {
+                    val cmd = runCatching { Core.remoteNext(1000) }.getOrDefault("")
+                    if (cmd.isNotEmpty()) runOnUiThread { onRemote(JSONObject(cmd)) }
+                }
+            }, "phone-remote").apply { isDaemon = true; start() }
+        }
+        lastPlayerInfo = ""
+        reportPlayer()
+        return info
+    }
+
+    /** The phone remote button: QR code, address and PIN. */
+    private fun showRemote() {
+        if (!loaded) return
+        val info = startRemote() ?: return
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, 0)
+        }
+        val message = TextView(this).apply { textSize = 16f }
+        if (info.isNull("address") || info.isNull("qr")) {
+            message.setText(R.string.remote_no_network)
+        } else {
+            val size = info.getInt("qrSize")
+            val bits = info.getString("qr")
+            val quiet = 4
+            val side = size + 2 * quiet
+            val bmp = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+            bmp.eraseColor(Color.WHITE)
+            for (y in 0 until size) for (x in 0 until size) {
+                if (bits[y * size + x] == '1') bmp.setPixel(x + quiet, y + quiet, Color.BLACK)
+            }
+            val px = (240 * resources.displayMetrics.density).toInt()
+            box.addView(ImageView(this).apply {
+                setImageBitmap(Bitmap.createScaledBitmap(bmp, px, px, false))
+                contentDescription = getString(R.string.remote)
+            }, LinearLayout.LayoutParams(px, px).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = pad })
+            message.text = getString(R.string.remote_scan, info.getString("address"), info.getString("pin"))
+        }
+        box.addView(message)
+        AlertDialog.Builder(this).setTitle(R.string.remote).setView(box)
+            .setPositiveButton(android.R.string.ok, null).show()
+    }
+
+    /** A request from a phone. */
+    private fun onRemote(cmd: JSONObject) {
+        if (!loaded) return
+        Log.d(TAG, "remote: $cmd")
+        when (cmd.optString("cmd")) {
+            "action" -> tvAction(cmd.getString("name"), if (cmd.isNull("arg")) null else cmd.optString("arg"))
+            "tune" -> {
+                perform(Core.tuneTo(cmd.getInt("idx")))
+                if (panel.visibility == View.VISIBLE) refreshList(keepPosition = true)
+            }
+            "fav" -> {
+                perform(Core.toggleFavorite(cmd.getInt("idx")))
+                if (panel.visibility == View.VISIBLE) refreshList(keepPosition = true)
+            }
+            "volume" -> audio().adjustStreamVolume(
+                AudioManager.STREAM_MUSIC,
+                if (cmd.getInt("delta") > 0) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER,
+                AudioManager.FLAG_SHOW_UI,
+            )
+            "mute" -> audio().adjustStreamVolume(
+                AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI,
+            )
+            "track" -> {
+                val isAudio = cmd.optString("kind") == "audio"
+                val list = tracksOf(if (isAudio) C.TRACK_TYPE_AUDIO else C.TRACK_TYPE_TEXT)
+                val track = if (cmd.isNull("id")) null else list.getOrNull(cmd.getInt("id"))
+                if (track != null || !isAudio) selectTrack(isAudio, track)
+            }
+        }
+        reportPlayer()
+    }
+
+    private fun audio() = getSystemService(AUDIO_SERVICE) as AudioManager
+
+    /** Sends the tracks (id = position in the list) and volume to phones, if changed. */
+    private fun reportPlayer() {
+        if (remoteThread == null) return
+        fun tracks(type: Int) = JSONArray().apply {
+            tracksOf(type).forEachIndexed { i, t ->
+                put(JSONObject().put("id", i).put("label", t.label(i + 1)).put("selected", t.selected))
+            }
+        }
+        val am = audio()
+        val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val info = JSONObject()
+            .put("audio", if (casting) JSONArray() else tracks(C.TRACK_TYPE_AUDIO))
+            .put("subs", if (casting) JSONArray() else tracks(C.TRACK_TYPE_TEXT))
+            .put("volume", am.getStreamVolume(AudioManager.STREAM_MUSIC) * 100 / max)
+            .put("muted", am.isStreamMute(AudioManager.STREAM_MUSIC))
+            .toString()
+        if (info != lastPlayerInfo) {
+            lastPlayerInfo = info
+            Core.remotePlayer(info)
+        }
     }
 
     // --- countries & languages ------------------------------------------------------

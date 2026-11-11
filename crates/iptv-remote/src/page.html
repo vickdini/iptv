@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14161a">
+<meta name="referrer" content="no-referrer">
+<title>IPTV remote</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='4' y='12' width='56' height='38' rx='6' fill='%231e88e5'/%3E%3Cpath d='M26 22v18l16-9z' fill='white'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f4f5f7; --card: #ffffff; --text: #16181d; --dim: #5f6673; --line: #e2e5ea;
+  --accent: #1e6fd9; --accent-text: #ffffff; --star: #e0a800; --btn: #e9ecf1; --danger: #c62828;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a; --card: #1d2026; --text: #eef0f3; --dim: #9aa2ae; --line: #2c3038;
+    --accent: #4d9bff; --accent-text: #0b1220; --star: #ffcc33; --btn: #2a2e36; --danger: #ef6b6b;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body {
+  font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding: max(12px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  max-width: 560px; margin: 0 auto; -webkit-tap-highlight-color: transparent;
+}
+button, input, select { font: inherit; color: inherit; }
+button {
+  border: 0; border-radius: 14px; background: var(--btn); padding: 0; cursor: pointer;
+  min-height: 52px; touch-action: manipulation; user-select: none;
+}
+button:active { filter: brightness(0.85); }
+.hidden { display: none !important; }
+.status { color: var(--dim); font-size: 14px; min-height: 20px; text-align: center; }
+.status.error { color: var(--danger); }
+
+.now {
+  background: var(--card); border-radius: 18px; padding: 14px 16px; margin: 6px 0 12px;
+  display: flex; align-items: center; gap: 12px; border: 1px solid var(--line);
+}
+.now .num { font-size: 28px; font-weight: 700; color: var(--accent); min-width: 2ch; font-variant-numeric: tabular-nums; }
+.now .name { flex: 1; font-size: 19px; font-weight: 600; overflow-wrap: anywhere; }
+.star { background: none; min-height: 44px; min-width: 44px; font-size: 26px; color: var(--dim); }
+.star.on { color: var(--star); }
+
+.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
+.pad button { font-size: 18px; font-weight: 600; }
+.pad .big { min-height: 64px; font-size: 22px; }
+.pad .primary { background: var(--accent); color: var(--accent-text); }
+.pad small { display: block; font-size: 12px; font-weight: 500; opacity: 0.8; }
+
+.tracks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.tracks label { font-size: 13px; color: var(--dim); display: block; }
+.tracks select {
+  width: 100%; min-height: 48px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--card); padding: 0 10px;
+}
+
+.find { display: flex; gap: 8px; margin: 4px 0 8px; position: sticky; top: 0; background: var(--bg); padding: 6px 0; z-index: 1; }
+.find input {
+  flex: 1; min-width: 0; min-height: 48px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--card); padding: 0 14px;
+}
+.tabs { display: flex; gap: 6px; }
+.tabs button { min-height: 48px; padding: 0 14px; border-radius: 12px; font-weight: 600; }
+.tabs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+
+.list { list-style: none; margin: 0; padding: 0; background: var(--card); border-radius: 16px; border: 1px solid var(--line); overflow: hidden; }
+.list li { display: flex; align-items: center; border-top: 1px solid var(--line); }
+.list li:first-child { border-top: 0; }
+.list .pick {
+  flex: 1; min-width: 0; text-align: left; background: none; border-radius: 0; min-height: 52px;
+  padding: 8px 14px; display: flex; gap: 12px; align-items: center;
+}
+.list .pick .n { color: var(--dim); min-width: 4.5ch; text-align: right; font-variant-numeric: tabular-nums; }
+.list .pick .t { overflow-wrap: anywhere; }
+.list li.playing .pick { color: var(--accent); font-weight: 700; }
+.list .empty { padding: 18px; color: var(--dim); text-align: center; }
+.more { width: 100%; margin-top: 10px; }
+
+.pin { background: var(--card); border-radius: 18px; padding: 20px; margin-top: 24px; border: 1px solid var(--line); text-align: center; }
+.pin h1 { font-size: 22px; margin: 0 0 6px; }
+.pin p { color: var(--dim); margin: 0 0 16px; }
+.pin input {
+  width: 100%; font-size: 28px; letter-spacing: 0.3em; text-align: center; min-height: 56px;
+  border-radius: 12px; border: 1px solid var(--line); background: var(--bg); margin-bottom: 12px;
+}
+.pin button { width: 100%; background: var(--accent); color: var(--accent-text); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<section id="pin" class="pin hidden" aria-labelledby="pin-title">
+  <h1 id="pin-title">IPTV remote</h1>
+  <p>Enter the PIN shown on the TV (press <b>r</b> on a computer, or open
+     <b>Phone remote</b> in the TV app's channel list).</p>
+  <form id="pin-form">
+    <input id="pin-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" aria-label="PIN" required>
+    <button type="submit">Connect</button>
+  </form>
+  <div id="pin-status" class="status"></div>
+</section>
+
+<main id="remote" class="hidden">
+  <div id="status" class="status" role="status"></div>
+
+  <div class="now">
+    <div class="num" id="now-num">–</div>
+    <div class="name" id="now-name">Connecting…</div>
+    <button class="star" id="now-star" aria-label="Favorite" aria-pressed="false">☆</button>
+  </div>
+
+  <div class="pad">
+    <button class="big primary" data-action="up" aria-label="Channel up">CH ▲</button>
+    <button class="big" data-action="prev" aria-label="Previous channel">⟲<small>previous</small></button>
+    <button class="big" data-volume="5" aria-label="Volume up">🔊 +</button>
+    <button class="big primary" data-action="down" aria-label="Channel down">CH ▼</button>
+    <button class="big" data-action="info" aria-label="Channel info on the TV">ⓘ<small>info</small></button>
+    <button class="big" data-volume="-5" aria-label="Volume down">🔉 −</button>
+    <button data-action="group-prev" aria-label="Previous group">◀ group</button>
+    <button data-action="group-next" aria-label="Next group">group ▶</button>
+    <button id="mute" aria-label="Mute" aria-pressed="false"><span id="vol">🔈 mute</span></button>
+  </div>
+
+  <div class="tracks" id="tracks">
+    <div id="audio-box" class="hidden">
+      <label for="audio">Audio</label>
+      <select id="audio"></select>
+    </div>
+    <div id="subs-box" class="hidden">
+      <label for="subs">Subtitles</label>
+      <select id="subs"></select>
+    </div>
+  </div>
+
+  <div class="find">
+    <input id="q" type="search" placeholder="Search channels" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Search channels">
+    <div class="tabs" role="group" aria-label="Show">
+      <button id="tab-all" aria-pressed="true">All</button>
+      <button id="tab-fav" aria-pressed="false" aria-label="Favorites only">★</button>
+    </div>
+  </div>
+  <ul class="list" id="list" aria-label="Channels"></ul>
+  <button class="more hidden" id="more">Show more</button>
+</main>
+
+<script>
+'use strict';
+var KEY_STORE = 'iptv-remote-key';
+var PAGE = 150;
+var key = '';
+var seq = 0;
+var state = null;
+var items = [];
+var shown = 0;
+var favsOnly = false;
+var listTimer = 0;
+var listGen = 0;
+
+function $(id) { return document.getElementById(id); }
+function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
+
+function api(path, body) {
+  var opts = { headers: { 'X-Key': key }, cache: 'no-store' };
+  if (body) {
+    opts.method = 'POST';
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  return fetch(path, opts).then(function (r) {
+    if (r.status === 401) { askPin('That PIN didn’t work. Check the TV and try again.'); throw new Error('pin'); }
+    if (r.status === 429) { askPin('Too many wrong PINs. Wait a few minutes, then try again.'); throw new Error('locked'); }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  });
+}
+
+function send(cmd) {
+  return api('/api/cmd', cmd).catch(function (e) { if (e.message !== 'pin') status('Not sent: ' + e.message, true); });
+}
+
+function status(text, error) {
+  var s = $('status');
+  s.textContent = text || '';
+  s.classList.toggle('error', !!error);
+}
+
+/* ---- PIN */
+
+function askPin(message) {
+  $('remote').classList.add('hidden');
+  $('pin').classList.remove('hidden');
+  $('pin-status').textContent = message || '';
+  $('pin-input').value = '';
+}
+
+$('pin-form').addEventListener('submit', function (ev) {
+  ev.preventDefault();
+  key = $('pin-input').value.trim();
+  store(KEY_STORE, key);
+  begin();
+});
+
+/* ---- state (long poll) */
+
+function poll() {
+  api('/api/state?seq=' + seq).then(function (s) {
+    status('');
+    // Refetch the list only when channels appear / disappear; a new channel
+    // just moves the highlight (keeps the phone's scroll position).
+    var first = !state;
+    var listChanged = first || s.count !== state.count;
+    seq = s.seq;
+    state = s;
+    render();
+    if (first) refreshList(false);
+    else if (listChanged) scheduleList();
+    else markPlaying();
+    setTimeout(poll, 0);
+  }).catch(function (e) {
+    if (e.message === 'pin' || e.message === 'locked') return;
+    status('Can’t reach the TV. Is it on, and is this phone on the same Wi-Fi?', true);
+    setTimeout(poll, 3000);
+  });
+}
+
+function render() {
+  var c = state.current;
+  $('now-num').textContent = c.number;
+  $('now-name').textContent = c.name || '';
+  var star = $('now-star');
+  star.textContent = c.fav ? '★' : '☆';
+  star.classList.toggle('on', c.fav);
+  star.setAttribute('aria-pressed', String(c.fav));
+  $('vol').textContent = state.muted ? '🔇 muted' : '🔈 ' + (state.volume == null ? 'mute' : state.volume + '%');
+  $('mute').setAttribute('aria-pressed', String(state.muted));
+  fillTracks('audio', state.audio, null);
+  fillTracks('subs', state.subs, 'Off');
+}
+
+function fillTracks(id, tracks, offLabel) {
+  var box = $(id + '-box');
+  var sel = $(id);
+  var usable = offLabel ? tracks.length > 0 : tracks.length > 1;
+  box.classList.toggle('hidden', !usable);
+  if (!usable) return;
+  var html = offLabel ? '<option value="off">' + offLabel + '</option>' : '';
+  var chosen = 'off';
+  tracks.forEach(function (t) {
+    html += '<option value="' + t.id + '">' + escapeHtml(t.label) + '</option>';
+    if (t.selected) chosen = String(t.id);
+  });
+  if (sel.innerHTML !== html) sel.innerHTML = html;
+  if (document.activeElement !== sel) sel.value = chosen;
+}
+
+/* ---- channel list */
+
+function refreshList(resetScroll) {
+  var gen = ++listGen;
+  var q = $('q').value.trim();
+  api('/api/list?q=' + encodeURIComponent(q) + (favsOnly ? '&favs=1' : '')).then(function (r) {
+    if (gen !== listGen) return;
+    items = r.items;
+    shown = 0;
+    $('list').innerHTML = '';
+    if (!items.length) {
+      $('list').innerHTML = '<li class="empty">' + (favsOnly ? 'No favorites yet. Tap ☆ to add the channel you’re watching.' : 'No channels match.') + '</li>';
+    }
+    showMore();
+    if (resetScroll) window.scrollTo(0, $('q').getBoundingClientRect().top + window.scrollY - 8);
+  }).catch(function () {});
+}
+
+function showMore() {
+  var list = $('list');
+  var cur = state ? state.current.idx : -1;
+  var frag = document.createDocumentFragment();
+  items.slice(shown, shown + PAGE).forEach(function (it) {
+    var li = document.createElement('li');
+    if (it[0] === cur) li.className = 'playing';
+    li.innerHTML = '<button class="pick" data-idx="' + it[0] + '"><span class="n">' + (it[0] + 1) +
+      '</span><span class="t">' + escapeHtml(it[1]) + '</span></button>' +
+      '<button class="star' + (it[2] ? ' on' : '') + '" data-fav="' + it[0] + '" aria-label="Favorite" aria-pressed="' + it[2] + '">' +
+      (it[2] ? '★' : '☆') + '</button>';
+    frag.appendChild(li);
+  });
+  list.appendChild(frag);
+  shown = Math.min(items.length, shown + PAGE);
+  $('more').classList.toggle('hidden', shown >= items.length);
+  $('more').textContent = 'Show more (' + (items.length - shown) + ' left)';
+}
+
+// While the TV is still checking channels the count changes every second:
+// refresh the list at most every few seconds.
+var listPending = 0;
+function scheduleList() {
+  if (listPending) return;
+  listPending = setTimeout(function () { listPending = 0; refreshList(false); }, 5000);
+}
+
+function markPlaying() {
+  var cur = String(state.current.idx);
+  Array.prototype.forEach.call($('list').querySelectorAll('.pick'), function (b) {
+    b.parentNode.classList.toggle('playing', b.dataset.idx === cur);
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+/* ---- input */
+
+document.addEventListener('click', function (ev) {
+  var b = ev.target.closest('button');
+  if (!b || !key) return;
+  if (b.dataset.action) send({ cmd: 'action', name: b.dataset.action });
+  else if (b.dataset.volume) send({ cmd: 'volume', delta: Number(b.dataset.volume) });
+  else if (b.dataset.idx) {
+    send({ cmd: 'tune', idx: Number(b.dataset.idx) });
+    if (navigator.vibrate) navigator.vibrate(15);
+  } else if (b.dataset.fav) {
+    send({ cmd: 'fav', idx: Number(b.dataset.fav) }).then(function () { refreshList(false); });
+  }
+});
+$('now-star').addEventListener('click', function () {
+  if (state) send({ cmd: 'fav', idx: state.current.idx }).then(function () { refreshList(false); });
+});
+$('mute').addEventListener('click', function () { send({ cmd: 'mute' }); });
+$('audio').addEventListener('change', function () { send({ cmd: 'track', kind: 'audio', id: Number(this.value) }); });
+$('subs').addEventListener('change', function () {
+  send({ cmd: 'track', kind: 'sub', id: this.value === 'off' ? null : Number(this.value) });
+});
+$('q').addEventListener('input', function () {
+  clearTimeout(listTimer);
+  listTimer = setTimeout(function () { refreshList(false); }, 200);
+});
+$('more').addEventListener('click', showMore);
+function setTab(favs) {
+  favsOnly = favs;
+  $('tab-all').setAttribute('aria-pressed', String(!favs));
+  $('tab-fav').setAttribute('aria-pressed', String(favs));
+  refreshList(true);
+}
+$('tab-all').addEventListener('click', function () { setTab(false); });
+$('tab-fav').addEventListener('click', function () { setTab(true); });
+// Load more rows as the end of the list comes into view.
+if ('IntersectionObserver' in window) {
+  new IntersectionObserver(function (e) {
+    if (e[0].isIntersecting && shown < items.length) showMore();
+  }, { rootMargin: '600px' }).observe($('more'));
+}
+
+/* ---- start */
+
+function begin() {
+  $('pin').classList.add('hidden');
+  $('remote').classList.remove('hidden');
+  seq = 0;
+  state = null;
+  poll();
+}
+
+(function () {
+  // The QR code carries the PIN after "#": remember it, then hide it.
+  var fromQr = location.hash.replace(/^#/, '');
+  if (/^[0-9]{6}$/.test(fromQr)) {
+    store(KEY_STORE, fromQr);
+    try { history.replaceState(null, '', location.pathname); } catch (e) { /* ignore */ }
+  }
+  key = store(KEY_STORE) || '';
+  if (key) begin(); else askPin();
+})();
+</script>
+</body>
+</html>

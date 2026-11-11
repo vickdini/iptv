@@ -58,11 +58,20 @@ pub enum Event {
     /// The stream started decoding.
     FileLoaded,
     /// Mouse position in window pixels; `hover` is false outside the window.
-    MousePos { x: f64, y: f64, hover: bool },
+    MousePos {
+        x: f64,
+        y: f64,
+        hover: bool,
+    },
     /// Window (OSD) height in pixels.
-    OsdSize { h: f64 },
+    OsdSize {
+        h: f64,
+    },
     /// The current stream's audio and subtitle tracks.
     Tracks(Vec<Track>),
+    /// Volume in percent.
+    Volume(f64),
+    Muted(bool),
     /// mpv exited or the IPC connection closed.
     Closed,
 }
@@ -226,6 +235,9 @@ impl Mpv {
             .await?;
         mpv.command(json!(["observe_property", 3, "track-list"]))
             .await?;
+        mpv.command(json!(["observe_property", 4, "volume"]))
+            .await?;
+        mpv.command(json!(["observe_property", 5, "mute"])).await?;
         Ok((mpv, rx))
     }
 
@@ -343,6 +355,14 @@ async fn read_events(reader: impl AsyncRead + Unpin, tx: mpsc::UnboundedSender<E
                         _ => continue,
                     },
                     Some("track-list") => Event::Tracks(parse_tracks(d)),
+                    Some("volume") => match d.as_f64() {
+                        Some(v) => Event::Volume(v),
+                        None => continue,
+                    },
+                    Some("mute") => match d.as_bool() {
+                        Some(m) => Event::Muted(m),
+                        None => continue,
+                    },
                     _ => continue,
                 }
             }

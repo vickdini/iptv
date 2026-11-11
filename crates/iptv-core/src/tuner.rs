@@ -111,6 +111,10 @@ pub struct SavedState {
     /// Preferred subtitle language; None: subtitles off.
     #[serde(default)]
     pub subtitle_language: Option<String>,
+    /// PIN phones use with the phone remote; set once the remote was opened
+    /// (from then on it starts with the app).
+    #[serde(default)]
+    pub remote_pin: Option<String>,
 }
 
 pub struct Tuner {
@@ -137,6 +141,7 @@ pub struct Tuner {
     region_languages: HashSet<String>,
     audio_language: Option<String>,
     subtitle_language: Option<String>,
+    remote_pin: Option<String>,
 }
 
 impl Tuner {
@@ -177,6 +182,7 @@ impl Tuner {
             region_languages: state.languages.iter().cloned().collect(),
             audio_language: state.audio_language.clone(),
             subtitle_language: state.subtitle_language.clone(),
+            remote_pin: state.remote_pin.clone(),
         })
     }
 
@@ -211,6 +217,7 @@ impl Tuner {
             languages,
             audio_language: self.audio_language.clone(),
             subtitle_language: self.subtitle_language.clone(),
+            remote_pin: self.remote_pin.clone(),
         }
     }
 
@@ -403,6 +410,27 @@ impl Tuner {
         let mut fx = self.enter_filter(title);
         fx.push(Effect::Save);
         fx
+    }
+
+    /// The phone remote's PIN, if the remote was ever turned on.
+    pub fn remote_pin(&self) -> Option<&str> {
+        self.remote_pin.as_deref()
+    }
+
+    pub fn set_remote_pin(&mut self, pin: Option<String>) -> Vec<Effect> {
+        self.remote_pin = pin;
+        vec![Effect::Save]
+    }
+
+    /// Whether a channel shows up at all: working and in the chosen
+    /// countries / languages (ignoring groups, favorites-only and search).
+    pub fn is_listed(&self, idx: usize) -> bool {
+        idx < self.channels.len() && !self.dead[idx] && self.region_ok(idx)
+    }
+
+    /// Channel names prepared for searching (see [`normalize`]).
+    pub fn search_names(&self) -> &[String] {
+        &self.search_names
     }
 
     /// Preferred audio and subtitle languages (track language codes);
@@ -710,6 +738,7 @@ i  info      l / Tab  channel panel (wheel, click, Esc)
 / or Ctrl+F  search channels by name
 c            choose countries and languages
 a  audio language      t  subtitles   (when offered)
+r            phone remote (QR code to scan)
 g / G        next / previous group
 s  toggle favorite    S  favorites only
 f  fullscreen         q  quit";

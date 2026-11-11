@@ -58,6 +58,18 @@ object Core {
     /** Remembers the audio / subtitle language picked (null: stream default / subtitles off). */
     @JvmStatic external fun setTrackPrefs(audio: String?, subtitles: String?): String
 
+    /** "true" if the phone remote was turned on before (it then starts with the app). */
+    @JvmStatic external fun remoteEnabled(): String
+
+    /** Starts the phone remote once: `{"address","pin","qrSize","qr":"0101..."}`. */
+    @JvmStatic external fun remoteStart(): String
+
+    /** The player's tracks and volume for phones: `{"audio":[{id,label,selected}],"subs":[...],"volume","muted"}`. */
+    @JvmStatic external fun remotePlayer(info: String): String
+
+    /** Waits up to [timeoutMs] for a phone's request (JSON with "cmd"), or "". Blocking: own thread. */
+    @JvmStatic external fun remoteNext(timeoutMs: Int): String
+
     /** Channel list header: `{"title","status","current"}`. */
     @JvmStatic external fun listInfo(): String
 
