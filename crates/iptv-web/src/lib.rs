@@ -65,6 +65,20 @@ impl WebCore {
             .collect()
     }
 
+    /// Every channel's logo address by index ("" when it has none).
+    pub fn logos(&self) -> Vec<String> {
+        self.tuner
+            .channels()
+            .iter()
+            .map(|c| {
+                c.logo
+                    .clone()
+                    .filter(|l| l.starts_with("http"))
+                    .unwrap_or_default()
+            })
+            .collect()
+    }
+
     /// Every stream URL by index (fetched once for the channel checker).
     pub fn urls(&self) -> Vec<String> {
         self.tuner

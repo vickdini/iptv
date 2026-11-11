@@ -183,6 +183,17 @@
                 android:src="@drawable/ic_tracks"
                 android:visibility="gone" />
 
+            <!-- Recently watched channels. -->
+            <ImageButton
+                android:id="@+id/recent"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="@drawable/item_bg"
+                android:contentDescription="@string/recent"
+                android:padding="10dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_recent" />
+
             <TextView
                 android:id="@+id/favOnly"
                 style="@style/PanelButton"

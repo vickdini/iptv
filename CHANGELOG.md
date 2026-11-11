@@ -6,6 +6,16 @@ What's new in each version of IPTV. Downloads for every version are on the
 When releasing, add a section for the new version at the top. The release
 workflow uses that section as the release notes.
 
+## [Unreleased]
+
+### Added
+- **Channel logos** in the channel list, the channel banner and the phone
+  remote, on every platform.
+- **Recently watched:** the last 20 channels you watched, most recent first.
+  - Computers: **g**.
+  - TV remotes: Right in the channel list (right after *All channels*).
+  - Android and the phone remote: the 🕘 button.
+
 ## [0.10.0] - 2026-11-11
 
 ### Added

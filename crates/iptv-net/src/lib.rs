@@ -3,6 +3,7 @@
 //! health checks. Callers pass the directory to store data in.
 
 pub mod health;
+pub mod logo;
 pub mod playlist;
 pub mod update;
 

@@ -151,7 +151,8 @@ On phones and tablets, the ⏻ button in the channel list header exits the app
 (it also stops casting).
 
 In the channel list: tap (or OK) watches a channel, long-press toggles a
-favorite, and the ◀ ▶ ★ buttons switch group / favorites only.
+favorite, the ◀ ▶ ★ buttons switch group / favorites only, and the 🕘 button
+shows the channels you watched recently.
 
 **[Download the latest APK](https://github.com/vickdini/iptv/releases/latest)**
 (`IPTV-<version>.apk` under *Assets*) on the phone or TV and open it. Android
@@ -261,7 +262,7 @@ TVs from 2019 on.
 | c | choose countries and languages (see below) |
 | a / t | next audio language / next subtitles (and off), see below |
 | r | phone remote: shows a QR code to control IPTV from your phone (see below) |
-| g / G | next / previous group (Movies, News, Sports…) |
+| g / G | recently watched, then the groups (Movies, News, Sports…) |
 | s / S | toggle favorite / zap only through favorites |
 | i | channel info |
 | f, double-click | fullscreen (Esc leaves it) |
@@ -308,6 +309,14 @@ Channel numbers don't change, and groups with nothing to show are skipped.
 The data comes from iptv-org's playlists grouped by country and by language
 (fetched alongside the main playlist, with the same caching), so it is
 available for the default iptv-org playlist.
+
+### Channel logos and recently watched
+
+Channel lists, the channel banner and the phone remote show each channel's
+logo (from the playlist; downloaded once and kept). The last 20 channels you
+watched are a view of their own, most recent first: **g** on a computer, Right
+in the channel list on TV remotes (it comes right after *All channels*), the
+🕘 button on Android and in the phone remote.
 
 ### Phone remote
 

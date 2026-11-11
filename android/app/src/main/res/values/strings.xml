@@ -13,6 +13,7 @@
     <string name="regions">Countries &amp; languages</string>
     <string name="tracks">Audio language &amp; subtitles</string>
     <string name="remote">Phone remote</string>
+    <string name="recent">Recently watched</string>
     <string name="pip_up">Next channel</string>
     <string name="pip_down">Previous channel</string>
     <string name="split_hint">Two channels: tap a half to hear it, swipe a half to change its channel. Turn the phone sideways for one.</string>

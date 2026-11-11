@@ -80,6 +80,10 @@ pub struct Snapshot {
     pub names: Arc<Vec<String>>,
     /// The names prepared for searching.
     pub search: Arc<Vec<String>>,
+    /// Logo addresses by index ("" when a channel has none).
+    pub logos: Arc<Vec<String>>,
+    /// Recently watched channels, most recent first.
+    pub recent: Vec<usize>,
     /// Channels shown at all (working, in the chosen countries / languages).
     pub listed: Vec<bool>,
     pub favorites: Vec<bool>,
@@ -96,6 +100,18 @@ impl Snapshot {
         let mut s = Self {
             names: Arc::new(tuner.channels().iter().map(|c| c.name.clone()).collect()),
             search: Arc::new(tuner.search_names().to_vec()),
+            logos: Arc::new(
+                tuner
+                    .channels()
+                    .iter()
+                    .map(|c| {
+                        c.logo
+                            .clone()
+                            .filter(|l| l.starts_with("http"))
+                            .unwrap_or_default()
+                    })
+                    .collect(),
+            ),
             ..Default::default()
         };
         s.refresh(tuner);
@@ -109,6 +125,7 @@ impl Snapshot {
         self.listed = (0..n).map(|i| tuner.is_listed(i)).collect();
         self.favorites = (0..n).map(|i| tuner.is_favorite(i)).collect();
         self.current = tuner.current();
+        self.recent = tuner.recent();
     }
 }
 
@@ -352,8 +369,15 @@ fn handle(stream: TcpStream, shared: &Shared) -> io::Result<()> {
         }
         ("GET", "/api/list") => {
             let q = param(&req.query, "q").unwrap_or_default();
-            let favs = param(&req.query, "favs").as_deref() == Some("1");
-            respond_json(&stream, "200 OK", list_json(shared, &q, favs))
+            let show = match (
+                param(&req.query, "favs").as_deref(),
+                param(&req.query, "recent").as_deref(),
+            ) {
+                (Some("1"), _) => Show::Favorites,
+                (_, Some("1")) => Show::Recent,
+                _ => Show::All,
+            };
+            respond_json(&stream, "200 OK", list_json(shared, &q, show))
         }
         ("POST", "/api/cmd") => match serde_json::from_slice::<Command>(&req.body) {
             Ok(cmd) if valid(shared, &cmd) => {
@@ -425,6 +449,7 @@ fn state_json(shared: &Shared, seen: u64) -> serde_json::Value {
             "number": cur + 1,
             "name": s.names.get(cur),
             "fav": s.favorites.get(cur).copied().unwrap_or(false),
+            "logo": s.logos.get(cur),
         },
         "volume": s.volume,
         "muted": s.muted,
@@ -433,19 +458,41 @@ fn state_json(shared: &Shared, seen: u64) -> serde_json::Value {
     })
 }
 
-/// Listed channels matching a search: `[[idx, name, favorite], ...]`.
-fn list_json(shared: &Shared, query: &str, favs_only: bool) -> serde_json::Value {
+/// Which channels the phone's list shows.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Show {
+    All,
+    Favorites,
+    Recent,
+}
+
+/// Listed channels matching a search: `[[idx, name, favorite, logo], ...]`
+/// (recently watched: most recent first; otherwise by number).
+fn list_json(shared: &Shared, query: &str, show: Show) -> serde_json::Value {
     let words: Vec<String> = normalize(query)
         .split_whitespace()
         .map(String::from)
         .collect();
     let st = lock(&shared.state);
     let s = &st.snapshot;
-    let items: Vec<serde_json::Value> = (0..s.names.len())
-        .filter(|&i| s.listed.get(i).copied().unwrap_or(false))
-        .filter(|&i| !favs_only || s.favorites.get(i).copied().unwrap_or(false))
+    let order: Vec<usize> = match show {
+        Show::Recent => s.recent.clone(),
+        _ => (0..s.names.len()).collect(),
+    };
+    let fav = |i: usize| s.favorites.get(i).copied().unwrap_or(false);
+    let items: Vec<serde_json::Value> = order
+        .into_iter()
+        .filter(|&i| i < s.names.len() && s.listed.get(i).copied().unwrap_or(false))
+        .filter(|&i| show != Show::Favorites || fav(i))
         .filter(|&i| words.iter().all(|w| s.search[i].contains(w.as_str())))
-        .map(|i| json!([i, s.names[i], s.favorites.get(i).copied().unwrap_or(false)]))
+        .map(|i| {
+            json!([
+                i,
+                s.names[i],
+                fav(i),
+                s.logos.get(i).map(String::as_str).unwrap_or("")
+            ])
+        })
         .collect();
     json!({ "items": items })
 }
@@ -497,6 +544,7 @@ mod tests {
             names: Arc::new(names),
             listed: vec![true, true, true],
             favorites: vec![false, true, false],
+            recent: vec![2, 0],
             ..Default::default()
         }
     }
@@ -527,6 +575,18 @@ mod tests {
         assert!(
             favs.contains("Canal Sur") && !favs.contains("Rai 1"),
             "{favs}"
+        );
+        let recent = call(
+            p,
+            "GET /api/list?recent=1 HTTP/1.1\r\nX-Key: 123456\r\n\r\n",
+        );
+        let (t, r) = (
+            recent.find("Télé Nord").unwrap(),
+            recent.find("Rai 1").unwrap(),
+        );
+        assert!(
+            t < r && !recent.contains("Canal Sur"),
+            "most recent first: {recent}"
         );
 
         let body = r#"{"cmd":"tune","idx":2}"#;

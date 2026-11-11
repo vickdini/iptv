@@ -88,6 +88,9 @@ object Core {
     /** Indices of favorite channels. */
     @JvmStatic external fun favorites(): IntArray
 
+    /** Every channel's logo address by index ("" if none). Call once, off the main thread. */
+    @JvmStatic external fun logos(): Array<String>
+
     /** Every channel name by index. Call once, off the main thread. */
     @JvmStatic external fun names(): Array<String>
 

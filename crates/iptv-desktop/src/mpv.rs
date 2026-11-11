@@ -279,6 +279,36 @@ impl Mpv {
         .await
     }
 
+    /// Shows a raw premultiplied-BGRA image file at window pixel (x, y).
+    /// `id` 0-63, separate from the text overlays.
+    pub async fn image_overlay(
+        &mut self,
+        id: u32,
+        x: i64,
+        y: i64,
+        path: &Path,
+        w: u32,
+        h: u32,
+    ) -> Result<()> {
+        self.command(json!([
+            "overlay-add",
+            id,
+            x,
+            y,
+            path.to_string_lossy(),
+            0,
+            "bgra",
+            w,
+            h,
+            w * 4
+        ]))
+        .await
+    }
+
+    pub async fn remove_image_overlay(&mut self, id: u32) -> Result<()> {
+        self.command(json!(["overlay-remove", id])).await
+    }
+
     pub async fn remove_overlay(&mut self, id: u32) -> Result<()> {
         self.command(json!({ "name": "osd-overlay", "id": id, "format": "none", "data": "" }))
             .await

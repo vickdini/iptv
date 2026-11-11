@@ -396,6 +396,20 @@ impl App {
     }
 
     /// Every channel name, by index (fetched once by the UI).
+    /// Logo address of every channel by index ("" when it has none).
+    pub fn logos(&self) -> Vec<String> {
+        self.tuner
+            .channels()
+            .iter()
+            .map(|c| {
+                c.logo
+                    .clone()
+                    .filter(|l| l.starts_with("http"))
+                    .unwrap_or_default()
+            })
+            .collect()
+    }
+
     pub fn names(&self) -> Vec<String> {
         self.tuner
             .channels()

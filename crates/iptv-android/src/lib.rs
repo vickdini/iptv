@@ -334,6 +334,24 @@ pub extern "system" fn Java_io_github_vickdini_iptv_Core_names<'l>(
     })
 }
 
+// logos(): String[] -- every channel's logo address by index ("" if none).
+#[no_mangle]
+pub extern "system" fn Java_io_github_vickdini_iptv_Core_logos<'l>(
+    mut env: JNIEnv<'l>,
+    _class: JClass<'l>,
+) -> jobjectArray {
+    call_obj(&mut env, |env| {
+        let logos = app::with(|a| Ok(a.logos()))?;
+        let arr = env.new_object_array(logos.len() as i32, "java/lang/String", JObject::null())?;
+        for (i, logo) in logos.iter().enumerate() {
+            let s = env.new_string(logo)?;
+            env.set_object_array_element(&arr, i as i32, &s)?;
+            env.delete_local_ref(s)?;
+        }
+        Ok(arr.into_raw())
+    })
+}
+
 // poll(): {"changed":bool, "status":...|null}  -- merge background check results.
 export!(Java_io_github_vickdini_iptv_Core_poll, |_env| app::with(
     |a| Ok(a.poll())

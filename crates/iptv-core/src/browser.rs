@@ -52,10 +52,7 @@ impl Browser {
             self.scroll = 0;
             return;
         }
-        self.selected = self
-            .items
-            .partition_point(|&c| c < selected)
-            .min(self.items.len() - 1);
+        self.selected = self.position(selected);
         self.scroll = self.selected.saturating_sub(row).min(self.max_scroll());
     }
 
@@ -78,6 +75,16 @@ impl Browser {
         self.items.get(self.selected).copied()
     }
 
+    /// Where `channel` is in the list, or (in a list sorted by number) the
+    /// nearest following one. Lists aren't always sorted (recently watched).
+    fn position(&self, channel: usize) -> usize {
+        self.items
+            .iter()
+            .position(|&c| c == channel)
+            .unwrap_or_else(|| self.items.partition_point(|&c| c < channel))
+            .min(self.items.len().saturating_sub(1))
+    }
+
     fn max_scroll(&self) -> usize {
         self.items.len().saturating_sub(self.rows)
     }
@@ -88,10 +95,7 @@ impl Browser {
         if self.items.is_empty() {
             return;
         }
-        let pos = self
-            .items
-            .partition_point(|&c| c < channel)
-            .min(self.items.len() - 1);
+        let pos = self.position(channel);
         self.selected = pos;
         if center || !self.is_visible(pos) {
             self.scroll = pos.saturating_sub(self.rows / 2).min(self.max_scroll());

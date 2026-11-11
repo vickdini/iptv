@@ -33,7 +33,7 @@ var HELP = [
     'Up / Down, CH+ / CH−    change channel',
     '0–9                    go to channel number',
     'OK                     channel list',
-    'Left / Right           previous / next group',
+    'Left / Right           recently watched, groups',
     'PRE-CH                 previous channel',
     'INFO                   channel info',
     'Red                    favorite      Green  favorites only',
@@ -51,6 +51,7 @@ var player = null;
 var keyOf = null;
 var health = null;
 var names = [];
+var logos = [];
 var urls = [];
 var loaded = false;
 var digitsPending = false;
@@ -168,6 +169,7 @@ function load() {
         core = new wasm_bindgen.WebCore(res[0], state, res[2], res[3]);
         health = res[1];
         names = core.names();
+        logos = core.logos();
         urls = core.urls();
         var jobs = applySavedChecks();
         loaded = true;
@@ -256,10 +258,11 @@ function checkStatus() {
 function perform(effectsJson) {
     var effects = JSON.parse(effectsJson);
     var typing = false;
+    var tuned = -1; // the banner after a tune gets the channel's logo
     effects.forEach(function (e) {
         switch (e.type) {
-            case 'tune': tune(e); break;
-            case 'osd': showOsd(e.text, e.ms); break;
+            case 'tune': tune(e); tuned = e.idx; break;
+            case 'osd': showOsd(e.text, e.ms, tuned); break;
             case 'digitTimer':
                 typing = true;
                 clearTimeout(timers.digit);
@@ -305,9 +308,22 @@ function tune(e) {
 
 /* -------------------------------------------------------------- overlays */
 
-function showOsd(text, ms) {
+function showOsd(text, ms, logoOf) {
     var osd = $('osd');
-    osd.textContent = text;
+    osd.textContent = '';
+    var url = logoOf >= 0 ? logos[logoOf] : '';
+    if (url) {
+        var img = document.createElement('img');
+        img.className = 'osd-logo';
+        img.referrerPolicy = 'no-referrer';
+        img.alt = '';
+        img.onerror = function () { img.remove(); };
+        img.src = url;
+        osd.appendChild(img);
+    }
+    var span = document.createElement('span');
+    span.textContent = text;
+    osd.appendChild(span);
     osd.classList.toggle('right', panel.open);
     osd.classList.remove('hidden');
     clearTimeout(timers.osd);
@@ -323,6 +339,12 @@ function showStatus(text) {
 function hideStatus() { $('status').classList.add('hidden'); }
 
 /* ------------------------------------------------------------ channel list */
+
+/** Where `value` is in the list, else (lists sorted by number) the next one. */
+function positionOf(arr, value) {
+    var i = Array.prototype.indexOf.call(arr, value);
+    return i >= 0 ? i : lowerBound(arr, value);
+}
 
 function lowerBound(arr, value) {
     var lo = 0, hi = arr.length;
@@ -378,7 +400,9 @@ function buildRows() {
         el.className = 'row';
         el.style.top = (r * ROW_H) + 'px';
         el.dataset.row = r;
-        el.innerHTML = '<span class="num"></span><span class="name"></span>';
+        // No referrer: image hosts such as imgur refuse other sites' pages.
+        el.innerHTML = '<span class="num"></span><img class="logo" alt="" referrerpolicy="no-referrer"><span class="name"></span>';
+        el.querySelector('.logo').onerror = function () { this.style.visibility = 'hidden'; };
         rows.appendChild(el);
         panel.els.push(el);
     }
@@ -386,7 +410,7 @@ function buildRows() {
 
 /* ------------------------------------------------- countries & languages */
 
-var KEYS_CHANNELS = '◀ ▶ group &nbsp; <span class="red">●</span> favorite &nbsp; <span class="green">●</span> favorites &nbsp; ' +
+var KEYS_CHANNELS = '◀ ▶ recent, groups &nbsp; <span class="red">●</span> favorite &nbsp; <span class="green">●</span> favorites &nbsp; ' +
     '<span class="blue">●</span> search &nbsp; <span class="yellow">●</span> countries';
 var KEYS_PICKER = '◀ ▶ countries / languages &nbsp; OK tick &nbsp; <span class="red">●</span> clear all &nbsp; ' +
     '<span class="blue">●</span> find &nbsp; Back done';
@@ -448,7 +472,9 @@ function renderPicker() {
     for (var r = 0; r < panel.els.length; r++) {
         var el = panel.els[r];
         var i = picker.scroll + r;
-        if (i >= picker.items.length) { el.style.visibility = 'hidden'; continue; }
+        setLogo(el.querySelector('.logo'), ''); // no channel logos in this list
+        if (i >= picker.items.length) { el.style.display = 'none'; continue; }
+        el.style.display = '';
         if (picker.items[i] === -1) {
             el.style.visibility = 'visible';
             el.classList.toggle('selected', i === picker.sel);
@@ -521,10 +547,10 @@ function refreshList(keep, toFirst) {
         panel.sel = 0;
         panel.scroll = 0;
     } else if (keep && oldSelIdx >= 0) {
-        panel.sel = lowerBound(panel.items, oldSelIdx);
+        panel.sel = positionOf(panel.items, oldSelIdx);
         panel.scroll = Math.min(Math.max(0, panel.sel - oldRow), maxScroll());
     } else {
-        panel.sel = lowerBound(panel.items, info.current);
+        panel.sel = positionOf(panel.items, info.current);
         panel.scroll = Math.min(Math.max(0, panel.sel - Math.floor(panel.rows / 3)), maxScroll());
     }
     render();
@@ -534,14 +560,25 @@ function render() {
     for (var r = 0; r < panel.els.length; r++) {
         var el = panel.els[r];
         var i = panel.scroll + r;
-        if (i >= panel.items.length) { el.style.visibility = 'hidden'; continue; }
+        // display, not visibility: a logo set visible would still show.
+        if (i >= panel.items.length) { el.style.display = 'none'; continue; }
         var idx = panel.items[i];
         var playing = idx === panel.current;
-        el.style.visibility = 'visible';
+        el.style.display = '';
         el.classList.toggle('selected', i === panel.sel);
         el.classList.toggle('playing', playing);
         el.firstChild.textContent = idx + 1;
+        setLogo(el.querySelector('.logo'), logos[idx]);
         el.lastChild.textContent = (playing ? '▶ ' : '') + names[idx] + (panel.favs.has(idx) ? '  ★' : '');
+    }
+}
+
+/** Shows a channel logo in an <img> (hidden when there is none / it fails). */
+function setLogo(img, url) {
+    if (!url) { img.removeAttribute('src'); img.style.visibility = 'hidden'; return; }
+    if (img.getAttribute('src') !== url) {
+        img.style.visibility = 'visible';
+        img.src = url;
     }
 }
 

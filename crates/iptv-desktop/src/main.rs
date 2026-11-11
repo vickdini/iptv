@@ -2,6 +2,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod gui;
+mod logos;
 mod mpv;
 mod panel;
 mod storage;
@@ -28,6 +29,16 @@ const PANEL_OVERLAY_ID: u32 = 1;
 /// The "this channel has other languages" hint at the bottom.
 const HINT_OVERLAY_ID: u32 = 2;
 const HINT_MS: u64 = 6000;
+/// Image overlays: channel list logos use ids from here on (one per row) ...
+const LOGO_BASE_ID: u32 = 10;
+/// ... and the channel banner's logo this one.
+const BANNER_LOGO_ID: u32 = 40;
+/// How long the channel banner shows (as in the core).
+const BANNER_MS: u64 = 3500;
+/// The banner logo's box and place, in 720-line canvas units; the banner
+/// text moves right to make room.
+const BANNER_LOGO: (f64, f64, f64, f64) = (25.0, 24.0, 100.0, 56.0);
+const OSD_MARGIN_X: f64 = 25.0;
 /// The phone remote's QR card.
 const REMOTE_OVERLAY_ID: u32 = 3;
 const WHEEL_ROWS: isize = 3;
@@ -229,6 +240,8 @@ async fn run(args: Args) -> Result<()> {
 
     // Events of the small picture's window, tagged with which one it was.
     let (pip_tx, mut pip_rx) = tokio::sync::mpsc::unbounded_channel();
+    // Channel logos as they finish loading.
+    let (logos, mut logo_rx) = logos::Logos::new(storage::cache_dir(), DEFAULT_USER_AGENT);
     // Phone remote requests, forwarded from the remote's server threads.
     let (remote_tx, mut remote_rx) = tokio::sync::mpsc::unbounded_channel();
     let mut app = App {
@@ -257,6 +270,9 @@ async fn run(args: Args) -> Result<()> {
         volume: None,
         muted: false,
         pip: None,
+        logos,
+        list_logos: Vec::new(),
+        banner_logo: None,
         pip_tx,
         pip_gen: 0,
         mpv_path: mpv_path.clone(),
@@ -352,6 +368,11 @@ async fn run(args: Args) -> Result<()> {
                 }
             },
             Some(cmd) = remote_rx.recv() => app.on_remote(cmd).await?,
+            Some((url, img)) = logo_rx.recv() => {
+                app.logos.loaded(url, img);
+                app.place_list_logos().await?;
+                app.show_banner_logo().await?;
+            }
             Some((generation, ev)) = pip_rx.recv() => app.on_pip_event(generation, ev).await?,
             _ = tick.tick() => {
                 if app.view_dirty {
@@ -360,6 +381,9 @@ async fn run(args: Args) -> Result<()> {
                 if app.view_dirty || (app.panel.is_some() && checks_open) {
                     app.view_dirty = false;
                     app.refresh_panel().await?;
+                }
+                if app.banner_logo.is_some_and(|(_, until)| Instant::now() >= until) {
+                    app.hide_banner_logo().await?;
                 }
                 if app.hint_until.is_some_and(|t| Instant::now() >= t) {
                     app.hint_until = None;
@@ -453,6 +477,11 @@ struct App {
     muted: bool,
     /// The small picture: a second channel in the bottom-right corner.
     pip: Option<Pip>,
+    logos: logos::Logos,
+    /// Logos shown in the channel list: (overlay id, file, x, y).
+    list_logos: Vec<(u32, PathBuf, i64, i64)>,
+    /// The channel whose logo goes with the banner, until when.
+    banner_logo: Option<(usize, Instant)>,
     /// Where the small picture's window events go (with its generation).
     pip_tx: tokio::sync::mpsc::UnboundedSender<(u64, Event)>,
     /// Bumped each time the small picture opens (ignores a closed one's events).
@@ -1275,6 +1304,7 @@ impl App {
     }
 
     async fn open_panel(&mut self) -> Result<()> {
+        self.hide_banner_logo().await?;
         self.panel = Some(Panel::new(&self.tuner));
         // Keep channel banners from covering the panel, keep the cursor visible.
         self.player
@@ -1304,13 +1334,112 @@ impl App {
     async fn redraw(&mut self) -> Result<()> {
         if let Some(picker) = &self.picker {
             let ass = picker.render(&self.tuner);
-            return self.player.overlay(PANEL_OVERLAY_ID, &ass, panel::H).await;
+            self.player
+                .overlay(PANEL_OVERLAY_ID, &ass, panel::H)
+                .await?;
+            return self.place_list_logos().await;
         }
         if let Some(panel) = &self.panel {
             let typing = self.typing.then_some(self.query.as_str());
             let ass = panel.render(&self.tuner, self.check_status().as_deref(), typing);
             self.player
                 .overlay(PANEL_OVERLAY_ID, &ass, panel::H)
+                .await?;
+        }
+        self.place_list_logos().await
+    }
+
+    // --- channel logos ----------------------------------------------------------
+
+    /// Window pixels per canvas unit.
+    fn canvas_scale(&self) -> f64 {
+        self.osd_h / panel::H
+    }
+
+    /// Puts each visible row's logo next to its name (and removes the rest).
+    /// Only overlays that changed are sent to mpv.
+    async fn place_list_logos(&mut self) -> Result<()> {
+        let mut want: Vec<(u32, PathBuf, i64, i64, u32, u32)> = Vec::new();
+        let showing = self.panel.is_some() && self.picker.is_none() && !self.remote_card;
+        if let (true, Some(panel)) = (showing, self.panel.as_ref()) {
+            let k = self.canvas_scale();
+            for (row, ch, x, y, w, h) in panel.logo_slots() {
+                let Some(url) = self.tuner.channels()[ch].logo.clone() else {
+                    continue;
+                };
+                let (bw, bh) = ((w * k) as u32, (h * k) as u32);
+                if let Some(r) = self.logos.render(&url, bw, bh) {
+                    // Centered in its box.
+                    let px = (x * k) as i64 + (bw as i64 - r.w as i64) / 2;
+                    let py = (y * k) as i64 + (bh as i64 - r.h as i64) / 2;
+                    want.push((LOGO_BASE_ID + row as u32, r.path, px, py, r.w, r.h));
+                }
+            }
+        }
+        let old = std::mem::take(&mut self.list_logos);
+        for (id, path, x, y, w, h) in &want {
+            if !old
+                .iter()
+                .any(|(oid, op, ox, oy)| oid == id && op == path && ox == x && oy == y)
+            {
+                self.player.image_overlay(*id, *x, *y, path, *w, *h).await?;
+            }
+        }
+        for (id, ..) in &old {
+            if !want.iter().any(|(nid, ..)| nid == id) {
+                self.player.remove_image_overlay(*id).await?;
+            }
+        }
+        self.list_logos = want
+            .into_iter()
+            .map(|(id, p, x, y, _, _)| (id, p, x, y))
+            .collect();
+        Ok(())
+    }
+
+    /// Shows the current channel's logo left of the channel banner (once it
+    /// has loaded, while the banner is up).
+    async fn show_banner_logo(&mut self) -> Result<()> {
+        let Some((idx, until)) = self.banner_logo else {
+            return Ok(());
+        };
+        if Instant::now() >= until
+            || self.panel.is_some()
+            || self.remote_card
+            || idx != self.tuner.current()
+        {
+            return Ok(());
+        }
+        let Some(url) = self.tuner.channels()[idx].logo.clone() else {
+            return Ok(());
+        };
+        let k = self.canvas_scale();
+        let (x, y, w, h) = BANNER_LOGO;
+        let Some(r) = self.logos.render(&url, (w * k) as u32, (h * k) as u32) else {
+            return Ok(());
+        };
+        self.player
+            .image_overlay(
+                BANNER_LOGO_ID,
+                (x * k) as i64,
+                (y * k) as i64,
+                &r.path,
+                r.w,
+                r.h,
+            )
+            .await?;
+        // Move the banner text right of the logo.
+        let margin = x + r.w as f64 / k + 14.0;
+        self.player
+            .set_property("osd-margin-x", json!(margin.round() as i64))
+            .await
+    }
+
+    async fn hide_banner_logo(&mut self) -> Result<()> {
+        if self.banner_logo.take().is_some() {
+            self.player.remove_image_overlay(BANNER_LOGO_ID).await?;
+            self.player
+                .set_property("osd-margin-x", json!(OSD_MARGIN_X as i64))
                 .await?;
         }
         Ok(())
@@ -1326,6 +1455,9 @@ impl App {
         for effect in effects {
             match effect {
                 Effect::Tune(idx) => {
+                    self.hide_banner_logo().await?;
+                    self.banner_logo =
+                        Some((idx, Instant::now() + Duration::from_millis(BANNER_MS)));
                     self.tune_seq += 1;
                     self.current_loaded = false;
                     self.tracks.clear();
@@ -1356,6 +1488,7 @@ impl App {
                 Effect::Save => storage::save_state(&self.tuner.state()),
             }
         }
+        self.show_banner_logo().await?;
         // Keep the panel in sync with group/favorite changes and zapping.
         if let Some(panel) = self.panel.as_mut() {
             let view = self.tuner.view();

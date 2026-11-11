@@ -39,6 +39,8 @@ button:active { filter: brightness(0.85); }
   background: var(--card); border-radius: 18px; padding: 14px 16px; margin: 6px 0 12px;
   display: flex; align-items: center; gap: 12px; border: 1px solid var(--line);
 }
+.logo { width: 44px; height: 30px; object-fit: contain; flex: none; }
+.now .logo { width: 64px; height: 40px; }
 .now .num { font-size: 28px; font-weight: 700; color: var(--accent); min-width: 2ch; font-variant-numeric: tabular-nums; }
 .now .name { flex: 1; font-size: 19px; font-weight: 600; overflow-wrap: anywhere; }
 .star { background: none; min-height: 44px; min-width: 44px; font-size: 26px; color: var(--dim); }
@@ -106,6 +108,7 @@ button:active { filter: brightness(0.85); }
   <div id="status" class="status" role="status"></div>
 
   <div class="now">
+    <img class="logo hidden" id="now-logo" alt="" referrerpolicy="no-referrer">
     <div class="num" id="now-num">–</div>
     <div class="name" id="now-name">Connecting…</div>
     <button class="star" id="now-star" aria-label="Favorite" aria-pressed="false">☆</button>
@@ -139,6 +142,7 @@ button:active { filter: brightness(0.85); }
     <div class="tabs" role="group" aria-label="Show">
       <button id="tab-all" aria-pressed="true">All</button>
       <button id="tab-fav" aria-pressed="false" aria-label="Favorites only">★</button>
+      <button id="tab-recent" aria-pressed="false" aria-label="Recently watched">🕘</button>
     </div>
   </div>
   <ul class="list" id="list" aria-label="Channels"></ul>
@@ -154,7 +158,7 @@ var seq = 0;
 var state = null;
 var items = [];
 var shown = 0;
-var favsOnly = false;
+var show = 'all'; // 'all' | 'favs' | 'recent'
 var listTimer = 0;
 var listGen = 0;
 
@@ -229,6 +233,9 @@ function render() {
   var c = state.current;
   $('now-num').textContent = c.number;
   $('now-name').textContent = c.name || '';
+  var logo = $('now-logo');
+  if (c.logo) { if (logo.getAttribute('src') !== c.logo) logo.src = c.logo; logo.classList.remove('hidden'); }
+  else logo.classList.add('hidden');
   var star = $('now-star');
   star.textContent = c.fav ? '★' : '☆';
   star.classList.toggle('on', c.fav);
@@ -260,13 +267,16 @@ function fillTracks(id, tracks, offLabel) {
 function refreshList(resetScroll) {
   var gen = ++listGen;
   var q = $('q').value.trim();
-  api('/api/list?q=' + encodeURIComponent(q) + (favsOnly ? '&favs=1' : '')).then(function (r) {
+  var which = show === 'favs' ? '&favs=1' : show === 'recent' ? '&recent=1' : '';
+  api('/api/list?q=' + encodeURIComponent(q) + which).then(function (r) {
     if (gen !== listGen) return;
     items = r.items;
     shown = 0;
     $('list').innerHTML = '';
     if (!items.length) {
-      $('list').innerHTML = '<li class="empty">' + (favsOnly ? 'No favorites yet. Tap ☆ to add the channel you’re watching.' : 'No channels match.') + '</li>';
+      var empty = show === 'favs' ? 'No favorites yet. Tap ☆ to add the channel you’re watching.'
+        : show === 'recent' ? 'Channels you watch will appear here.' : 'No channels match.';
+      $('list').innerHTML = '<li class="empty">' + empty + '</li>';
     }
     showMore();
     if (resetScroll) window.scrollTo(0, $('q').getBoundingClientRect().top + window.scrollY - 8);
@@ -280,8 +290,12 @@ function showMore() {
   items.slice(shown, shown + PAGE).forEach(function (it) {
     var li = document.createElement('li');
     if (it[0] === cur) li.className = 'playing';
+    var logo = /^https?:/.test(it[3] || '')
+      ? '<img class="logo" loading="lazy" alt="" referrerpolicy="no-referrer" src="' + escapeHtml(it[3]) +
+        '" onerror="this.style.visibility=\'hidden\'">'
+      : '<span class="logo"></span>';
     li.innerHTML = '<button class="pick" data-idx="' + it[0] + '"><span class="n">' + (it[0] + 1) +
-      '</span><span class="t">' + escapeHtml(it[1]) + '</span></button>' +
+      '</span>' + logo + '<span class="t">' + escapeHtml(it[1]) + '</span></button>' +
       '<button class="star' + (it[2] ? ' on' : '') + '" data-fav="' + it[0] + '" aria-label="Favorite" aria-pressed="' + it[2] + '">' +
       (it[2] ? '★' : '☆') + '</button>';
     frag.appendChild(li);
@@ -340,14 +354,16 @@ $('q').addEventListener('input', function () {
   listTimer = setTimeout(function () { refreshList(false); }, 200);
 });
 $('more').addEventListener('click', showMore);
-function setTab(favs) {
-  favsOnly = favs;
-  $('tab-all').setAttribute('aria-pressed', String(!favs));
-  $('tab-fav').setAttribute('aria-pressed', String(favs));
+function setTab(which) {
+  show = which;
+  $('tab-all').setAttribute('aria-pressed', String(which === 'all'));
+  $('tab-fav').setAttribute('aria-pressed', String(which === 'favs'));
+  $('tab-recent').setAttribute('aria-pressed', String(which === 'recent'));
   refreshList(true);
 }
-$('tab-all').addEventListener('click', function () { setTab(false); });
-$('tab-fav').addEventListener('click', function () { setTab(true); });
+$('tab-all').addEventListener('click', function () { setTab('all'); });
+$('tab-fav').addEventListener('click', function () { setTab('favs'); });
+$('tab-recent').addEventListener('click', function () { setTab('recent'); });
 // Load more rows as the end of the list comes into view.
 if ('IntersectionObserver' in window) {
   new IntersectionObserver(function (e) {

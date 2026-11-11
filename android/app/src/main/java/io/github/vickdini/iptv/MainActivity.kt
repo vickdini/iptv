@@ -142,6 +142,7 @@ class MainActivity : AppCompatActivity() {
     private var castPlayer: CastPlayer? = null
     private val casting get() = castPlayer?.isCastSessionAvailable == true
     private var names: Array<String> = emptyArray()
+    private var logos: Array<String> = emptyArray()
     private var refreshPending = false
     private var lastRefresh = 0L
     private var lastTouch = 0L
@@ -196,6 +197,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.groupPrev).setOnClickListener { panelAction("group-prev") }
         findViewById<View>(R.id.groupNext).setOnClickListener { panelAction("group-next") }
         findViewById<View>(R.id.favOnly).setOnClickListener { panelAction("fav-only") }
+        findViewById<View>(R.id.recent).setOnClickListener { panelAction("recent") }
         findViewById<View>(R.id.regions).setOnClickListener { chooseRegions() }
         tracksButton = findViewById<View>(R.id.tracks).apply { setOnClickListener { chooseTracks() } }
         findViewById<View>(R.id.phoneRemote).setOnClickListener { showRemote() }
@@ -220,6 +222,7 @@ class MainActivity : AppCompatActivity() {
         setupCast()
         setupGestures()
         Core.init(cacheDir.absolutePath, filesDir.absolutePath)
+        LogoLoader.init(this)
         load()
     }
 
@@ -235,10 +238,12 @@ class MainActivity : AppCompatActivity() {
             val result = runCatching {
                 if (!resuming) Core.loadPlaylist(PLAYLIST_URL)
                 names = Core.names()
+                logos = Core.logos()
             }
             runOnUiThread {
                 result.onSuccess {
                     adapter.names = names
+                    adapter.logos = logos
                     status.visibility = View.GONE
                     loaded = true
                     setSearchText(Core.searchText())
@@ -263,11 +268,12 @@ class MainActivity : AppCompatActivity() {
     private fun perform(effectsJson: String): Boolean {
         val effects = JSONArray(effectsJson)
         var typing = false
+        var tuned = -1
         for (i in 0 until effects.length()) {
             val e = effects.getJSONObject(i)
             when (e.getString("type")) {
-                "tune" -> tune(e)
-                "osd" -> showOsd(e.getString("text"), e.getLong("ms"))
+                "tune" -> { tune(e); tuned = e.getInt("idx") }
+                "osd" -> showOsd(e.getString("text"), e.getLong("ms"), logoOf = tuned)
                 "digitTimer" -> {
                     typing = true
                     handler.removeCallbacks(digitTimeout)
@@ -504,8 +510,21 @@ class MainActivity : AppCompatActivity() {
         updateLayout()
     }
 
-    private fun showOsd(text: String, ms: Long) {
+    /** [logoOf]: the channel whose logo goes with the message (the banner), or -1. */
+    private fun showOsd(text: String, ms: Long, logoOf: Int = -1) {
         Log.d(TAG, "osd: " + text.replace("\n", " | "))
+        osd.setCompoundDrawablesRelative(null, null, null, null)
+        osd.tag = text
+        logos.getOrNull(logoOf)?.takeIf { it.isNotEmpty() }?.let { url ->
+            LogoLoader.load(url) { bmp ->
+                if (bmp == null || osd.tag != text || osd.visibility != View.VISIBLE) return@load
+                val h = (40 * resources.displayMetrics.density).toInt()
+                val w = (bmp.width * h / bmp.height.toFloat()).toInt().coerceIn(1, h * 3)
+                val d = android.graphics.drawable.BitmapDrawable(resources, bmp).apply { setBounds(0, 0, w, h) }
+                osd.compoundDrawablePadding = (12 * resources.displayMetrics.density).toInt()
+                osd.setCompoundDrawablesRelative(d, null, null, null)
+            }
+        }
         // Keep messages clear of the channel list.
         (osd.layoutParams as FrameLayout.LayoutParams).gravity =
             Gravity.TOP or if (panel.visibility == View.VISIBLE) Gravity.END else Gravity.START

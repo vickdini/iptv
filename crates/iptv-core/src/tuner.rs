@@ -17,6 +17,8 @@ use crate::m3u::Channel;
 pub const DIGIT_TIMEOUT_MS: u64 = 2000;
 
 const BANNER_MS: u32 = 3500;
+/// How many recently watched channels are remembered.
+pub const RECENT_MAX: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
@@ -35,6 +37,8 @@ pub enum Action {
     PrevGroup,
     ToggleFavorite,
     ToggleFavoritesOnly,
+    /// Show the recently watched channels (or everything again).
+    ToggleRecent,
     Help,
 }
 
@@ -52,6 +56,7 @@ impl Action {
             "group-prev" => Self::PrevGroup,
             "fav" => Self::ToggleFavorite,
             "fav-only" => Self::ToggleFavoritesOnly,
+            "recent" => Self::ToggleRecent,
             "help" => Self::Help,
             _ => return None,
         })
@@ -80,6 +85,8 @@ pub enum Filter {
     Favorites,
     /// Channels whose name matches [`Tuner::set_search`].
     Search,
+    /// The recently watched channels, most recent first.
+    Recent,
 }
 
 /// Lower-cases and strips accents, so "Télé" matches "tele".
@@ -98,6 +105,9 @@ pub struct SavedState {
     pub last_index: usize,
     #[serde(default)]
     pub favorites: Vec<String>,
+    /// Recently watched channels (stream URLs), most recent first.
+    #[serde(default)]
+    pub recent: Vec<String>,
     /// Show only channels from these countries or in these languages
     /// (both empty: all channels).
     #[serde(default)]
@@ -142,6 +152,8 @@ pub struct Tuner {
     audio_language: Option<String>,
     subtitle_language: Option<String>,
     remote_pin: Option<String>,
+    /// Recently watched stream URLs, most recent first.
+    recent: Vec<String>,
 }
 
 impl Tuner {
@@ -178,6 +190,7 @@ impl Tuner {
             digits: String::new(),
             filter: Filter::All,
             favorites: state.favorites.iter().cloned().collect(),
+            recent: state.recent.iter().take(RECENT_MAX).cloned().collect(),
             region_countries: state.countries.iter().cloned().collect(),
             region_languages: state.languages.iter().cloned().collect(),
             audio_language: state.audio_language.clone(),
@@ -213,6 +226,7 @@ impl Tuner {
             last_url: Some(self.current_channel().url.clone()),
             last_index: self.current,
             favorites,
+            recent: self.recent.clone(),
             countries,
             languages,
             audio_language: self.audio_language.clone(),
@@ -229,6 +243,7 @@ impl Tuner {
                 self.current = idx;
             }
         }
+        self.remember(self.current);
         vec![Effect::Tune(self.current), self.banner()]
     }
 
@@ -339,6 +354,17 @@ impl Tuner {
                     ];
                 }
                 self.filter = Filter::Favorites;
+                self.enter_filter(self.view_title())
+            }
+            Action::ToggleRecent => {
+                if self.filter == Filter::Recent {
+                    self.filter = Filter::All;
+                    return vec![self.osd(&self.view_title())];
+                }
+                if !(0..self.channels.len()).any(|i| self.matches_with(i, Filter::Recent)) {
+                    return vec![self.osd("No recently watched channels yet")];
+                }
+                self.filter = Filter::Recent;
                 self.enter_filter(self.view_title())
             }
             Action::Help => vec![Effect::Osd {
@@ -528,7 +554,25 @@ impl Tuner {
     }
 
     /// Channel indices Up/Down currently zap through, ascending.
+    /// Recently watched channels that are listed, most recent first.
+    pub fn recent(&self) -> Vec<usize> {
+        self.recent
+            .iter()
+            .filter_map(|url| self.channels.iter().position(|c| c.url == *url))
+            .filter(|&i| self.is_listed(i))
+            .collect()
+    }
+
+    /// The channels in the current view: by number, except recently watched
+    /// ones, which are most recent first.
     pub fn view(&self) -> Vec<usize> {
+        if self.filter == Filter::Recent {
+            return self
+                .recent()
+                .into_iter()
+                .filter(|&i| self.matches(i))
+                .collect();
+        }
         (0..self.channels.len())
             .filter(|&i| self.matches(i))
             .collect()
@@ -565,6 +609,7 @@ impl Tuner {
                 .iter()
                 .any(|x| *x == self.groups[g]),
             Filter::Favorites => self.favorites.contains(&self.channels[idx].url),
+            Filter::Recent => self.recent.contains(&self.channels[idx].url),
             Filter::Search => self
                 .search_words
                 .iter()
@@ -605,7 +650,19 @@ impl Tuner {
             self.previous = Some(self.current);
             self.current = idx;
         }
+        self.remember(idx);
         vec![Effect::Tune(idx), self.banner(), Effect::Save]
+    }
+
+    /// Puts a channel at the top of the recently watched list.
+    fn remember(&mut self, idx: usize) {
+        let Some(ch) = self.channels.get(idx) else {
+            return;
+        };
+        let url = ch.url.clone();
+        self.recent.retain(|u| *u != url);
+        self.recent.insert(0, url);
+        self.recent.truncate(RECENT_MAX);
     }
 
     fn confirm_digits(&mut self) -> Vec<Effect> {
@@ -625,6 +682,7 @@ impl Tuner {
             Filter::All => None,
             Filter::Group(g) => Some(self.groups[g].clone()),
             Filter::Favorites => Some("Favorites".into()),
+            Filter::Recent => Some("Recently watched".into()),
             Filter::Search => Some(format!("Search: {}", self.search_text)),
         }
     }
@@ -682,37 +740,32 @@ impl Tuner {
     }
 
     fn cycle_group(&mut self, forward: bool) -> Vec<Effect> {
-        // Cycle order: All, group 0, group 1, ..., group n-1, All, ...
-        let n = self.groups.len();
-        if n == 0 {
-            return vec![self.osd("This playlist has no groups")];
-        }
+        // Cycle order: All, Recently watched, group 0, ..., group n-1, All, ...
+        let n = self.groups.len() + 2;
+        let at = |pos: usize| match pos {
+            0 => Filter::All,
+            1 => Filter::Recent,
+            g => Filter::Group(g - 2),
+        };
         let pos = match self.filter {
             Filter::All | Filter::Favorites | Filter::Search => 0,
-            Filter::Group(g) => g + 1,
+            Filter::Recent => 1,
+            Filter::Group(g) => g + 2,
         };
-        // Skip groups with no channel in the chosen countries / languages.
+        // Skip views with nothing to show (no recent channels yet, groups with
+        // no channel in the chosen countries / languages).
         let mut next = pos;
-        for _ in 0..=n {
+        for _ in 0..n {
             next = if forward {
-                (next + 1) % (n + 1)
+                (next + 1) % n
             } else {
-                (next + n) % (n + 1)
+                (next + n - 1) % n
             };
-            let candidate = if next == 0 {
-                Filter::All
-            } else {
-                Filter::Group(next - 1)
-            };
-            if next == 0 || (0..self.channels.len()).any(|i| self.matches_with(i, candidate)) {
+            if next == 0 || (0..self.channels.len()).any(|i| self.matches_with(i, at(next))) {
                 break;
             }
         }
-        self.filter = if next == 0 {
-            Filter::All
-        } else {
-            Filter::Group(next - 1)
-        };
+        self.filter = at(next);
         self.enter_filter(self.view_title())
     }
 
@@ -1028,6 +1081,8 @@ mod tests {
         // Group cycling skips groups with nothing to show (News, Kids).
         assert_eq!(t.groups(), ["General", "Kids", "News"]);
         t.handle(Action::NextGroup);
+        assert_eq!(t.filter(), Filter::Recent); // recently watched comes first
+        t.handle(Action::NextGroup);
         assert_eq!(t.filter(), Filter::Group(0)); // General
         t.handle(Action::NextGroup);
         assert_eq!(t.filter(), Filter::All); // Kids and News skipped
@@ -1044,6 +1099,37 @@ mod tests {
         t.set_regions(vec![], vec![]);
         assert_eq!(t.view().len(), 5);
         assert_eq!(t.region_label(), None);
+    }
+
+    #[test]
+    fn remembers_recently_watched_channels() {
+        let mut t = tuner(30);
+        t.start();
+        for idx in [3, 7, 3, 12] {
+            t.tune_to(idx);
+        }
+        t.handle(Action::ToggleRecent);
+        assert_eq!(t.filter(), Filter::Recent);
+        // Most recent first, each channel once, the start channel last.
+        assert_eq!(t.view(), vec![12, 3, 7, 0]);
+        assert!(t.view_title().starts_with("Recently watched (4)"));
+        // Kept across restarts, at most RECENT_MAX.
+        for idx in 0..25 {
+            t.tune_to(idx);
+        }
+        let t2 = Tuner::new(t.channels().to_vec(), &t.state()).unwrap();
+        assert_eq!(t2.state().recent.len(), RECENT_MAX);
+        assert_eq!(t2.state().recent[0], t.channels()[24].url);
+    }
+
+    #[test]
+    fn group_cycle_visits_recent_after_all() {
+        let mut t = tuner(5);
+        t.start();
+        t.handle(Action::NextGroup);
+        assert_eq!(t.filter(), Filter::Recent);
+        t.handle(Action::PrevGroup);
+        assert_eq!(t.filter(), Filter::All);
     }
 
     #[test]

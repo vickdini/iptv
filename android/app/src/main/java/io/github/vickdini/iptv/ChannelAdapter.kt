@@ -4,6 +4,7 @@ import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 
@@ -20,7 +21,10 @@ class ChannelAdapter(
     /** All channel names by index (set once after the playlist loads). */
     var names: Array<String> = emptyArray()
 
-    /** Channel indices shown, ascending. */
+    /** All channel logo addresses by index ("" if none). */
+    var logos: Array<String> = emptyArray()
+
+    /** Channel indices shown: ascending, except recently watched (most recent first). */
     var items: IntArray = IntArray(0)
         private set
     private var favorites: Set<Int> = emptySet()
@@ -42,8 +46,9 @@ class ChannelAdapter(
         }
     }
 
-    /** Position of channel [idx], or of the nearest following one (items are sorted). */
+    /** Position of channel [idx], or (in a list sorted by number) of the nearest following one. */
     fun positionOf(idx: Int): Int {
+        items.indexOf(idx).let { if (it >= 0) return it }
         var lo = 0
         var hi = items.size
         while (lo < hi) {
@@ -70,6 +75,7 @@ class ChannelAdapter(
             if (idx in favorites) append("  ★")
         }
         holder.name.setTextColor(if (playing) Color.rgb(255, 208, 64) else Color.WHITE)
+        LogoLoader.into(holder.logo, logos.getOrNull(idx))
         holder.itemView.setOnClickListener { onClick(idx) }
         holder.itemView.setOnLongClickListener { onLongClick(idx); true }
     }
@@ -77,5 +83,6 @@ class ChannelAdapter(
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
         val number: TextView = view.findViewById(R.id.number)
         val name: TextView = view.findViewById(R.id.name)
+        val logo: ImageView = view.findViewById(R.id.logo)
     }
 }

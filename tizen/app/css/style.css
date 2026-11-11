@@ -37,6 +37,7 @@ html, body {
 }
 
 .osd.right { left: auto; right: 64px; }
+.osd-logo { float: left; height: 84px; max-width: 200px; object-fit: contain; margin-right: 24px; }
 
 /* Subtitles drawn by the app (AVPlay only hands over their text). */
 .subs {
@@ -136,5 +137,6 @@ html, body {
 
 .row.selected { background: #1e5aa0; }
 .row .num { width: 120px; text-align: right; color: #b4b4b4; padding-right: 24px; flex: none; }
+.row .logo { width: 72px; height: 44px; object-fit: contain; margin-right: 20px; flex: none; }
 .row .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row.playing .name { color: #ffd040; }

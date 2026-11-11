@@ -14,6 +14,9 @@ const ROW_H: f64 = 28.0;
 const FOOTER_H: f64 = 34.0;
 const PAD: f64 = 16.0;
 const NUM_W: f64 = 64.0;
+/// Room for each channel's logo, left of its name.
+const LOGO_W: f64 = 40.0;
+const LOGO_X: f64 = PAD + NUM_W + 10.0;
 const SCROLLBAR_W: f64 = 8.0;
 const SCROLLBAR_HIT_W: f64 = 24.0;
 pub const ROWS: usize = ((H - HEADER_H - FOOTER_H) / ROW_H) as usize;
@@ -50,6 +53,18 @@ impl Panel {
         self.browser.set_items(tuner.view(), tuner.current());
     }
 
+    /// Where each visible row's logo goes: (row, channel, x, y, w, h) in
+    /// canvas units.
+    pub fn logo_slots(&self) -> Vec<(usize, usize, f64, f64, f64, f64)> {
+        self.browser
+            .visible()
+            .map(|(row, ch, _)| {
+                let top = HEADER_H + row as f64 * ROW_H;
+                (row, ch, LOGO_X, top + 3.0, LOGO_W, ROW_H - 6.0)
+            })
+            .collect()
+    }
+
     /// Hit-test a point in virtual canvas coordinates.
     pub fn hit(&self, x: f64, y: f64) -> Hit {
         hit_list(x, y, self.browser.len())
@@ -69,7 +84,7 @@ impl Panel {
             ),
             None => (
                 tuner.view_title(),
-                "/  search     c  countries     g / G  group     S  favorites     digits  jump",
+                "/  search     c  countries     g / G  recent, groups     S  favorites",
             ),
         };
         ev.push(text(PAD, 24.0, 26, C_TEXT, true, &title, PANEL_W - PAD));
@@ -100,7 +115,7 @@ impl Panel {
             ));
         }
 
-        let name_x = PAD + NUM_W + 12.0;
+        let name_x = LOGO_X + LOGO_W + 8.0;
         let name_right = PANEL_W - SCROLLBAR_HIT_W;
         for (row, ch, selected) in b.visible() {
             let top = HEADER_H + row as f64 * ROW_H;
