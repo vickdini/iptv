@@ -2,7 +2,7 @@
 <!-- Samsung Tizen TV app. Built into a .wgt by tizen/build.ps1 and installed
      on a TV in Developer Mode by tizen/install-on-tv.ps1. -->
 <widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets"
-        id="https://github.com/vickdini/iptv" version="0.10.0" viewmodes="maximized">
+        id="https://github.com/vickdini/iptv" version="0.11.0" viewmodes="maximized">
     <tizen:application id="vkIPTVtv01.IPTV" package="vkIPTVtv01" required_version="3.0"/>
     <content src="index.html"/>
     <name>IPTV</name>

@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/iptv-core", "crates/iptv-net", "crates/iptv-remote", "crates/iptv-desktop", "crates/iptv-android", "crates/iptv-web"]
 
 [workspace.package]
-version = "0.10.0"
+version = "0.11.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 
