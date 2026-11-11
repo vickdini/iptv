@@ -518,6 +518,8 @@ fn shortcut(c: &str) -> Option<&'static str> {
         "f" => "fullscreen",
         "m" => "mute",
         "p" => "pip",
+        "E" => "export-favorites",
+        "I" => "import-favorites",
         "x" => "swap",
         "[" => "pip-prev",
         "]" => "pip-next",
@@ -788,6 +790,59 @@ impl App {
         Ok(())
     }
 
+    // --- moving favorites -----------------------------------------------------------
+
+    /// Where `E` saves the favorites and `I` reads them: the Downloads folder.
+    fn favorites_file() -> PathBuf {
+        dirs::download_dir()
+            .or_else(dirs::home_dir)
+            .unwrap_or_default()
+            .join("IPTV favorites.json")
+    }
+
+    /// `E`: saves the favorites to a file, to add them on another device.
+    async fn export_favorites(&mut self) -> Result<()> {
+        let n = self.tuner.favorite_count();
+        if n == 0 {
+            return self
+                .player
+                .show_text(
+                    "No favorites to export yet (s adds the current channel)",
+                    3000,
+                )
+                .await;
+        }
+        let path = Self::favorites_file();
+        let msg = match std::fs::write(&path, self.tuner.export_favorites()) {
+            Ok(()) => format!(
+                "Saved {n} favorite{} to\n{}\n(on another device: I, or the phone remote)",
+                if n == 1 { "" } else { "s" },
+                path.display()
+            ),
+            Err(e) => format!("Couldn't save the favorites to {}: {e}", path.display()),
+        };
+        self.player.show_text(&msg, 6000).await
+    }
+
+    /// `I`: adds the favorites from the file `E` (on any device) saved.
+    async fn import_favorites(&mut self) -> Result<()> {
+        let path = Self::favorites_file();
+        let text = match std::fs::read_to_string(&path) {
+            Ok(t) => t,
+            Err(_) => {
+                let msg = format!(
+                    "Put “IPTV favorites.json” (from E on another device) here:\n{}",
+                    path.display()
+                );
+                return self.player.show_text(&msg, 6000).await;
+            }
+        };
+        match self.tuner.import_favorites(&text) {
+            Ok(fx) => self.apply(fx).await,
+            Err(msg) => self.player.show_text(&msg, 4000).await,
+        }
+    }
+
     // --- phone remote ---------------------------------------------------------
 
     /// Starts the remote's web server (creating its PIN the first time).
@@ -912,6 +967,10 @@ impl App {
                     .command(json!(["osd-msg", "cycle", "mute"]))
                     .await
             }
+            remote::Command::AddFavorites { urls, missing } => {
+                let fx = self.tuner.add_favorites(urls, missing);
+                self.apply(fx).await
+            }
             remote::Command::Track { kind, id } => {
                 let kind = match kind {
                     remote::TrackKind::Audio => TrackKind::Audio,
@@ -989,6 +1048,8 @@ impl App {
             "fullscreen" => return self.player.command(json!(["cycle", "fullscreen"])).await,
             "pip" => return self.toggle_pip().await,
             "swap" => return self.swap_pip().await,
+            "export-favorites" => return self.export_favorites().await,
+            "import-favorites" => return self.import_favorites().await,
             "pip-prev" => return self.step_pip(false).await,
             "pip-next" => return self.step_pip(true).await,
             "mute" => return self.player.command(json!(["cycle", "mute"])).await,

@@ -44,6 +44,8 @@ import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.app.RemoteAction
 import android.app.UiModeManager
+import android.content.ActivityNotFoundException
+import androidx.activity.result.contract.ActivityResultContracts
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -126,6 +128,25 @@ class MainActivity : AppCompatActivity() {
     private var settingSearch = false
     private lateinit var adapter: ChannelAdapter
     private lateinit var tracksButton: View
+    /** Moving favorites: the system's file pickers. */
+    private val saveFavorites = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@registerForActivityResult
+        runCatching {
+            contentResolver.openOutputStream(uri)?.use { it.write(Core.exportFavorites().toByteArray()) }
+        }.onSuccess {
+            val n = JSONObject(Core.exportFavorites()).getJSONArray("favorites").length()
+            showOsd(getString(R.string.favorites_saved, n), 5000)
+        }.onFailure { showOsd(getString(R.string.favorites_failed, it.message ?: ""), 5000) }
+    }
+    private val openFavorites = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        runCatching {
+            val text = contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
+            perform(Core.importFavorites(text))
+        }.onSuccess { refreshList(keepPosition = true) }
+            .onFailure { showOsd(getString(R.string.favorites_failed, it.message ?: ""), 5000) }
+    }
+
     /** The thread carrying out phone remote requests, once started. */
     private var remoteThread: Thread? = null
     /** Last tracks / volume sent to phones (sent again only when it changes). */
@@ -196,7 +217,10 @@ class MainActivity : AppCompatActivity() {
         list.itemAnimator = null
         findViewById<View>(R.id.groupPrev).setOnClickListener { panelAction("group-prev") }
         findViewById<View>(R.id.groupNext).setOnClickListener { panelAction("group-next") }
-        findViewById<View>(R.id.favOnly).setOnClickListener { panelAction("fav-only") }
+        findViewById<View>(R.id.favOnly).apply {
+            setOnClickListener { panelAction("fav-only") }
+            setOnLongClickListener { moveFavorites(); true }
+        }
         findViewById<View>(R.id.recent).setOnClickListener { panelAction("recent") }
         findViewById<View>(R.id.regions).setOnClickListener { chooseRegions() }
         tracksButton = findViewById<View>(R.id.tracks).apply { setOnClickListener { chooseTracks() } }
@@ -912,6 +936,28 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton(android.R.string.ok, null).show()
     }
 
+    /** Long-press on ★: save the favorites to a file, or add them from one. */
+    private fun moveFavorites() {
+        if (!loaded) return
+        AlertDialog.Builder(this).setTitle(R.string.favorites_move)
+            .setItems(arrayOf(getString(R.string.favorites_export), getString(R.string.favorites_import))) { _, which ->
+                try {
+                    if (which == 0) {
+                        if (JSONObject(Core.exportFavorites()).getJSONArray("favorites").length() == 0) {
+                            showOsd(getString(R.string.favorites_none), 3000)
+                        } else {
+                            saveFavorites.launch("IPTV favorites.json")
+                        }
+                    } else {
+                        openFavorites.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+                    }
+                } catch (e: ActivityNotFoundException) {
+                    showOsd(getString(R.string.favorites_no_picker), 5000)
+                }
+            }
+            .show()
+    }
+
     /** A request from a phone. */
     private fun onRemote(cmd: JSONObject) {
         if (!loaded) return
@@ -931,6 +977,10 @@ class MainActivity : AppCompatActivity() {
                 if (cmd.getInt("delta") > 0) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER,
                 AudioManager.FLAG_SHOW_UI,
             )
+            "addfavorites" -> {
+                perform(Core.addFavorites(cmd.getJSONArray("urls").toString(), cmd.optInt("missing")))
+                if (panel.visibility == View.VISIBLE) refreshList(keepPosition = true)
+            }
             "mute" -> audio().adjustStreamVolume(
                 AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI,
             )

@@ -396,6 +396,23 @@ impl App {
     }
 
     /// Every channel name, by index (fetched once by the UI).
+    /// The favorites as a file, to add them on another device.
+    pub fn export_favorites(&self) -> String {
+        self.tuner.export_favorites()
+    }
+
+    /// Adds the favorites from a file; effects (a message on screen).
+    pub fn import_favorites(&mut self, text: &str) -> Result<String> {
+        let fx = self.tuner.import_favorites(text).map_err(|m| anyhow!(m))?;
+        Ok(self.effects(fx))
+    }
+
+    /// Adds favorites sent by the phone remote (stream addresses); effects.
+    pub fn add_favorites(&mut self, urls: Vec<String>, missing: usize) -> String {
+        let fx = self.tuner.add_favorites(urls, missing);
+        self.effects(fx)
+    }
+
     /// Logo address of every channel by index ("" when it has none).
     pub fn logos(&self) -> Vec<String> {
         self.tuner

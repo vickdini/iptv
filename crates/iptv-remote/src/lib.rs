@@ -56,6 +56,9 @@ pub enum Command {
     Mute,
     /// Choose an audio / subtitle track (`id` None: subtitles off).
     Track { kind: TrackKind, id: Option<i64> },
+    /// Add these favorites (stream addresses), from a favorites file the
+    /// phone sent; `missing` of them aren't in this playlist.
+    AddFavorites { urls: Vec<String>, missing: usize },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,6 +85,8 @@ pub struct Snapshot {
     pub search: Arc<Vec<String>>,
     /// Logo addresses by index ("" when a channel has none).
     pub logos: Arc<Vec<String>>,
+    /// Stream addresses by index (to move favorites between devices).
+    pub urls: Arc<Vec<String>>,
     /// Recently watched channels, most recent first.
     pub recent: Vec<usize>,
     /// Channels shown at all (working, in the chosen countries / languages).
@@ -100,6 +105,7 @@ impl Snapshot {
         let mut s = Self {
             names: Arc::new(tuner.channels().iter().map(|c| c.name.clone()).collect()),
             search: Arc::new(tuner.search_names().to_vec()),
+            urls: Arc::new(tuner.channels().iter().map(|c| c.url.clone()).collect()),
             logos: Arc::new(
                 tuner
                     .channels()
@@ -299,7 +305,8 @@ fn read_request(stream: &TcpStream) -> io::Result<Request> {
             }
         }
     }
-    if length > 16 * 1024 {
+    // Favorites files can be a few hundred kilobytes.
+    if length > 1024 * 1024 {
         return Err(bad("body too large"));
     }
     let mut body = vec![0; length];
@@ -379,6 +386,48 @@ fn handle(stream: TcpStream, shared: &Shared) -> io::Result<()> {
             };
             respond_json(&stream, "200 OK", list_json(shared, &q, show))
         }
+        // The favorites as a file, to save on the phone.
+        ("GET", "/api/favorites") => {
+            let file = {
+                let st = lock(&shared.state);
+                let s = &st.snapshot;
+                let entries = (0..s.names.len())
+                    .filter(|&i| s.favorites.get(i).copied().unwrap_or(false))
+                    .map(|i| iptv_core::favorites::Entry {
+                        name: s.names[i].clone(),
+                        url: s.urls.get(i).cloned().unwrap_or_default(),
+                    })
+                    .collect();
+                iptv_core::favorites::to_file(entries)
+            };
+            respond(&stream, "200 OK", "application/json", file.as_bytes())
+        }
+        // A favorites file from the phone: added to this device's favorites.
+        ("POST", "/api/favorites") => {
+            let text = String::from_utf8_lossy(&req.body);
+            match iptv_core::favorites::parse(&text) {
+                Ok(entries) => {
+                    let (urls, missing) = {
+                        let st = lock(&shared.state);
+                        iptv_core::favorites::resolve(
+                            &entries,
+                            &st.snapshot.names,
+                            &st.snapshot.urls,
+                        )
+                    };
+                    let count = urls.len();
+                    let _ = lock(&shared.commands).send(Command::AddFavorites { urls, missing });
+                    respond_json(
+                        &stream,
+                        "200 OK",
+                        json!({ "count": count, "missing": missing }),
+                    )
+                }
+                Err(message) => {
+                    respond_json(&stream, "400 Bad Request", json!({ "error": message }))
+                }
+            }
+        }
         ("POST", "/api/cmd") => match serde_json::from_slice::<Command>(&req.body) {
             Ok(cmd) if valid(shared, &cmd) => {
                 let _ = lock(&shared.commands).send(cmd);
@@ -428,6 +477,8 @@ fn valid(shared: &Shared, cmd: &Command) -> bool {
             name.len() < 32 && arg.as_ref().is_none_or(|a| a.len() < 32)
         }
         Command::Mute | Command::Track { .. } => true,
+        // Only through /api/favorites, which checks the file.
+        Command::AddFavorites { .. } => false,
     }
 }
 
@@ -545,6 +596,11 @@ mod tests {
             listed: vec![true, true, true],
             favorites: vec![false, true, false],
             recent: vec![2, 0],
+            urls: Arc::new(vec![
+                "http://a".into(),
+                "http://b".into(),
+                "http://c".into(),
+            ]),
             ..Default::default()
         }
     }
@@ -606,6 +662,38 @@ mod tests {
                 "POST /api/cmd HTTP/1.1\r\nX-Key: 123456\r\nContent-Length: {}\r\n\r\n{body}",
                 body.len()
             ),
+        );
+        assert!(r.contains("400"), "{r}");
+    }
+
+    #[test]
+    fn moves_favorites() {
+        let (remote, rx) = Remote::start("222222".into(), snapshot()).unwrap();
+        let p = remote.port();
+        let file = call(p, "GET /api/favorites HTTP/1.1\r\nX-Key: 222222\r\n\r\n");
+        assert!(
+            file.contains("Canal Sur") && file.contains("http://b") && !file.contains("Rai 1"),
+            "{file}"
+        );
+        let body = r#"{"iptv":"favorites","version":1,"favorites":[{"name":"Rai 1","url":"http://a"},{"name":"Gone","url":"http://z"}]}"#;
+        let r = call(
+            p,
+            &format!(
+                "POST /api/favorites HTTP/1.1\r\nX-Key: 222222\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            ),
+        );
+        assert!(r.contains("\"missing\":1"), "{r}");
+        assert_eq!(
+            rx.recv().unwrap(),
+            Command::AddFavorites {
+                urls: vec!["http://a".into(), "http://z".into()],
+                missing: 1
+            }
+        );
+        let r = call(
+            p,
+            "POST /api/favorites HTTP/1.1\r\nX-Key: 222222\r\nContent-Length: 2\r\n\r\n{}",
         );
         assert!(r.contains("400"), "{r}");
     }

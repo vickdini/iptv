@@ -535,6 +535,7 @@ name = "iptv-core"
 version = "0.10.0"
 dependencies = [
  "serde",
+ "serde_json",
  "unicode-normalization",
 ]
 

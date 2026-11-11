@@ -398,6 +398,54 @@ impl Tuner {
         vec![self.osd(&msg), Effect::Save]
     }
 
+    /// The favorites as a file to move them to another device.
+    pub fn export_favorites(&self) -> String {
+        let entries = self
+            .channels
+            .iter()
+            .filter(|c| self.favorites.contains(&c.url))
+            .map(|c| crate::favorites::Entry {
+                name: c.name.clone(),
+                url: c.url.clone(),
+            })
+            .collect();
+        crate::favorites::to_file(entries)
+    }
+
+    /// How many favorites there are.
+    pub fn favorite_count(&self) -> usize {
+        self.favorites.len()
+    }
+
+    /// Adds favorites (stream addresses); says on screen how many were new.
+    /// `missing`: how many of them aren't in this playlist.
+    pub fn add_favorites(&mut self, urls: Vec<String>, missing: usize) -> Vec<Effect> {
+        let before = self.favorites.len();
+        self.favorites.extend(urls);
+        let added = self.favorites.len() - before;
+        let mut msg = match added {
+            0 => "No new favorites: they were all here already".to_string(),
+            1 => "★ Added 1 favorite".to_string(),
+            n => format!("★ Added {n} favorites"),
+        };
+        if missing > 0 {
+            msg.push_str(&format!(
+                "
+({missing} not in this channel list; kept for when they are)"
+            ));
+        }
+        vec![self.osd(&msg), Effect::Save]
+    }
+
+    /// Adds the favorites from a file made by [`Tuner::export_favorites`].
+    pub fn import_favorites(&mut self, text: &str) -> Result<Vec<Effect>, String> {
+        let entries = crate::favorites::parse(text)?;
+        let names: Vec<String> = self.channels.iter().map(|c| c.name.clone()).collect();
+        let urls: Vec<String> = self.channels.iter().map(|c| c.url.clone()).collect();
+        let (add, missing) = crate::favorites::resolve(&entries, &names, &urls);
+        Ok(self.add_favorites(add, missing))
+    }
+
     pub fn has_pending_digits(&self) -> bool {
         !self.digits.is_empty()
     }
@@ -805,6 +853,7 @@ i  info      l / Tab  channel panel (wheel, click, Esc)
 c            choose countries and languages
 a  audio language      t  subtitles   (when offered)
 r            phone remote (QR code to scan)
+E / I        export / import favorites (Downloads folder)
 g / G        next / previous group
 s  toggle favorite    S  favorites only
 p  small picture: a second channel in the corner
@@ -1130,6 +1179,23 @@ mod tests {
         assert_eq!(t.filter(), Filter::Recent);
         t.handle(Action::PrevGroup);
         assert_eq!(t.filter(), Filter::All);
+    }
+
+    #[test]
+    fn favorites_move_between_devices() {
+        let mut a = tuner(6);
+        a.toggle_favorite_at(1);
+        a.toggle_favorite_at(4);
+        let file = a.export_favorites();
+        let mut b = tuner(6);
+        b.toggle_favorite_at(4);
+        let fx = b.import_favorites(&file).unwrap();
+        assert!(fx
+            .iter()
+            .any(|e| matches!(e, Effect::Osd { text, .. } if text.contains("Added 1 favorite"))));
+        assert!(b.is_favorite(1) && b.is_favorite(4));
+        assert_eq!(b.favorite_count(), 2);
+        assert!(b.import_favorites("nonsense").is_err());
     }
 
     #[test]

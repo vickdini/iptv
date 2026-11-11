@@ -216,6 +216,30 @@ export!(
     }
 );
 
+// exportFavorites(): the favorites file's text.
+export!(Java_io_github_vickdini_iptv_Core_exportFavorites, |_env| {
+    app::with(|a| Ok(a.export_favorites()))
+});
+
+// importFavorites(text): effects -- throws with a message if it isn't a favorites file.
+export!(
+    Java_io_github_vickdini_iptv_Core_importFavorites,
+    |env, text: JString<'l>| {
+        let text = string(env, &text)?.unwrap_or_default();
+        app::with(|a| a.import_favorites(&text))
+    }
+);
+
+// addFavorites(urlsJson, missing): effects -- favorites sent by the phone remote.
+export!(
+    Java_io_github_vickdini_iptv_Core_addFavorites,
+    |env, urls: JString<'l>, missing: jint| {
+        let urls: Vec<String> =
+            serde_json::from_str(&string(env, &urls)?.unwrap_or_default()).unwrap_or_default();
+        app::with(|a| Ok(a.add_favorites(urls, missing.max(0) as usize)))
+    }
+);
+
 // neighbor(idx, forward): the next (forward != 0) / previous channel after idx, or "-1".
 export!(
     Java_io_github_vickdini_iptv_Core_neighbor,

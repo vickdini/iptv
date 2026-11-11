@@ -81,6 +81,12 @@ button:active { filter: brightness(0.85); }
 .list .empty { padding: 18px; color: var(--dim); text-align: center; }
 .more { width: 100%; margin-top: 10px; }
 
+.tools { margin: 24px 0 8px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; }
+.tools h2 { font-size: 17px; margin: 0 0 4px; }
+.tools p { color: var(--dim); font-size: 14px; margin: 0 0 12px; }
+.tools .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tools button, .tools label.btn { min-height: 48px; border-radius: 12px; background: var(--btn); display: flex;
+  align-items: center; justify-content: center; text-align: center; font-weight: 600; font-size: 15px; padding: 6px 8px; cursor: pointer; }
 .pin { background: var(--card); border-radius: 18px; padding: 20px; margin-top: 24px; border: 1px solid var(--line); text-align: center; }
 .pin h1 { font-size: 22px; margin: 0 0 6px; }
 .pin p { color: var(--dim); margin: 0 0 16px; }
@@ -147,6 +153,17 @@ button:active { filter: brightness(0.85); }
   </div>
   <ul class="list" id="list" aria-label="Channels"></ul>
   <button class="more hidden" id="more">Show more</button>
+
+  <section class="tools" aria-labelledby="tools-title">
+    <h2 id="tools-title">Move favorites</h2>
+    <p>Save this TV's favorites on your phone, then open another TV's or computer's remote and add them there.</p>
+    <div class="row2">
+      <button id="fav-save">Save to this phone</button>
+      <label class="btn" for="fav-file">Add from a file</label>
+    </div>
+    <input id="fav-file" type="file" accept=".json,application/json" hidden>
+    <div id="fav-status" class="status" role="status"></div>
+  </section>
 </main>
 
 <script>
@@ -165,12 +182,12 @@ var listGen = 0;
 function $(id) { return document.getElementById(id); }
 function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
 
-function api(path, body) {
+function api(path, body, raw) {
   var opts = { headers: { 'X-Key': key }, cache: 'no-store' };
   if (body) {
     opts.method = 'POST';
     opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
+    opts.body = raw ? body : JSON.stringify(body);
   }
   return fetch(path, opts).then(function (r) {
     if (r.status === 401) { askPin('That PIN didn’t work. Check the TV and try again.'); throw new Error('pin'); }
@@ -354,6 +371,46 @@ $('q').addEventListener('input', function () {
   listTimer = setTimeout(function () { refreshList(false); }, 200);
 });
 $('more').addEventListener('click', showMore);
+
+/* ---- moving favorites */
+
+$('fav-save').addEventListener('click', function () {
+  fetch('/api/favorites', { headers: { 'X-Key': key }, cache: 'no-store' }).then(function (r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.blob();
+  }).then(function (blob) {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'IPTV favorites.json';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    $('fav-status').textContent = 'Saved \u201cIPTV favorites.json\u201d (look in your downloads).';
+  }).catch(function (e) { $('fav-status').textContent = 'Couldn\u2019t save: ' + e.message; });
+});
+
+$('fav-file').addEventListener('change', function () {
+  var file = this.files && this.files[0];
+  this.value = '';
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function () {
+    fetch('/api/favorites', {
+      method: 'POST', cache: 'no-store',
+      headers: { 'X-Key': key, 'Content-Type': 'application/json' },
+      body: String(reader.result),
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+    }).then(function (res) {
+      if (!res.ok) { $('fav-status').textContent = res.j.error || 'That file couldn\u2019t be used.'; return; }
+      var n = res.j.count;
+      $('fav-status').textContent = 'Sent ' + n + ' favorite' + (n === 1 ? '' : 's') + ' to the TV' +
+        (res.j.missing ? ' (' + res.j.missing + ' not in its channel list yet).' : '.');
+      setTimeout(function () { refreshList(false); }, 800);
+    }).catch(function (e) { $('fav-status').textContent = 'Couldn\u2019t send: ' + e.message; });
+  };
+  reader.readAsText(file);
+});
 function setTab(which) {
   show = which;
   $('tab-all').setAttribute('aria-pressed', String(which === 'all'));

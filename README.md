@@ -262,6 +262,7 @@ TVs from 2019 on.
 | c | choose countries and languages (see below) |
 | a / t | next audio language / next subtitles (and off), see below |
 | r | phone remote: shows a QR code to control IPTV from your phone (see below) |
+| E / I | export / import favorites (`IPTV favorites.json` in Downloads, see below) |
 | g / G | recently watched, then the groups (Movies, News, Sports…) |
 | s / S | toggle favorite / zap only through favorites |
 | i | channel info |
@@ -317,6 +318,21 @@ logo (from the playlist; downloaded once and kept). The last 20 channels you
 watched are a view of their own, most recent first: **g** on a computer, Right
 in the channel list on TV remotes (it comes right after *All channels*), the
 🕘 button on Android and in the phone remote.
+
+### Moving favorites to another device
+
+Favorites travel in a small file, `IPTV favorites.json`. Importing **adds** to
+the favorites already there (nothing is removed); channels are found by
+address, or by name if the playlist changed their address.
+
+* **Phone remote (any TV or computer running it):** at the bottom of the
+  remote page, **Save to this phone** downloads the file; on the other
+  device's remote, **Add from a file** sends it.
+* **Computers:** **E** saves the file in your Downloads folder, **I** adds the
+  favorites from it (copy it across with a USB stick or a synced folder).
+* **Android phones and tablets:** long-press ★ in the channel list.
+
+Samsung TVs can't import favorites yet.
 
 ### Phone remote
 

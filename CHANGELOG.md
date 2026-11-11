@@ -9,6 +9,11 @@ workflow uses that section as the release notes.
 ## [Unreleased]
 
 ### Added
+- **Move favorites between devices** with a small file,
+  `IPTV favorites.json`. Importing adds to the favorites already there.
+  - Phone remote: *Save to this phone* and *Add from a file*.
+  - Computers: **E** to export and **I** to import, in the Downloads folder.
+  - Android: long-press ★ in the channel list.
 - **Channel logos** in the channel list, the channel banner and the phone
   remote, on every platform.
 - **Recently watched:** the last 20 channels you watched, most recent first.

@@ -58,6 +58,15 @@ object Core {
     /** Remembers the audio / subtitle language picked (null: stream default / subtitles off). */
     @JvmStatic external fun setTrackPrefs(audio: String?, subtitles: String?): String
 
+    /** The favorites as a file's text, to add them on another device. */
+    @JvmStatic external fun exportFavorites(): String
+
+    /** Adds the favorites from a file's text; effects. Throws (with a message) for other files. */
+    @JvmStatic external fun importFavorites(text: String): String
+
+    /** Adds favorites sent by the phone remote (JSON array of stream addresses); effects. */
+    @JvmStatic external fun addFavorites(urls: String, missing: Int): String
+
     /** The next ([forward] = 1) or previous channel after [idx] in the current view, or "-1". */
     @JvmStatic external fun neighbor(idx: Int, forward: Int): String
 
