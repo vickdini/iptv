@@ -108,12 +108,36 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # mpv comes from Ubuntu's package servers, which GitHub's machines
+      # sometimes can't reach. Downloaded packages are kept in GitHub's own
+      # build cache (per runner image), so later builds don't need them.
+      - name: Runner image version
+        id: image
+        run: echo "version=${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Ubuntu packages from the build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/debs
+          key: debs-ubuntu-22.04-${{ steps.image.outputs.version }}-mpv-v1
+
       - name: Install mpv and packaging tools
         timeout-minutes: 15
         run: |
-          # The runner's Ubuntu mirror sometimes can't be resolved (DNS
-          # failures), which makes apt hang. Check quickly first and, if
-          # needed, use mirrors on other domains (apt tries them in order).
+          # 1. From the cache, without contacting any server. (dpkg rather than
+          #    apt: apt wants its package lists for a set of local files.) The
+          #    cached install counts if mpv runs; otherwise download as usual.
+          if ls ~/debs/*.deb > /dev/null 2>&1; then
+            sudo dpkg -i --skip-same-version ~/debs/*.deb > "$RUNNER_TEMP/dpkg.log" 2>&1 ||
+              sudo dpkg --configure -a >> "$RUNNER_TEMP/dpkg.log" 2>&1 || true
+            if mpv --version > /dev/null 2>&1 && command -v desktop-file-validate > /dev/null; then
+              echo "Installed from the build cache: $(mpv --version | head -1)"
+              exit 0
+            fi
+            echo "::warning::the cached packages didn't install cleanly; downloading them"
+          fi
+          # 2. From the Ubuntu servers. If the runner's mirror can't be resolved,
+          #    use mirrors on other domains (apt tries them in order).
           if ! timeout 10 getent hosts azure.archive.ubuntu.com > /dev/null; then
             echo "::warning::azure.archive.ubuntu.com unreachable; using other Ubuntu mirrors"
             for m in http://mirrors.edge.kernel.org/ubuntu/ http://archive.ubuntu.com/ubuntu/ http://mirror.math.princeton.edu/pub/ubuntu/; do
@@ -123,7 +147,12 @@ jobs:
           fi
           opts="-o Acquire::Retries=1 -o Acquire::http::Timeout=20"
           sudo apt-get update -qq $opts || sudo apt-get update -qq $opts
+          sudo apt-get install -y -qq --download-only $opts mpv file desktop-file-utils
           sudo apt-get install -y -qq $opts mpv file desktop-file-utils
+          # Keep the packages for the next builds (saved when the job succeeds).
+          mkdir -p ~/debs
+          cp /var/cache/apt/archives/*.deb ~/debs/ 2>/dev/null || true
+          echo "Cached $(ls ~/debs | wc -l) packages"
 
       - name: Run tests
         run: cargo test -p iptv-core -p iptv-net -p iptv-desktop
