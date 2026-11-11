@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://github.com/vickdini/iptv/releases/latest">
     <img src="docs/images/iptv-overview.png" width="540"
-         alt="IPTV: free TV from 11,000+ public channels. Zap with Channel Up like a real TV, on Windows, Android, Android TV, Fire TV, Google TV, Samsung TV and Chromecast.">
+         alt="IPTV: free TV from 11,000+ public channels. Zap with Channel Up like a real TV, on Windows, macOS, Linux, Android, Android TV, Fire TV, Google TV, Samsung TV and Chromecast, with a phone remote, picture-in-picture and six languages.">
   </a>
 </p>
 
@@ -19,6 +19,25 @@ which roughly three quarters work at any given time).
 
 Runs on Windows, Linux, macOS, Android (phones, tablets, Android TV, Google
 TV, Fire TV) and Samsung smart TVs, and can cast to Chromecast.
+
+**Highlights**
+
+* **Like a TV:** channel up / down, channel numbers, previous channel, groups,
+  favorites and the channels you watched recently, with each channel's logo.
+* **Only channels that work:** dead channels are found and hidden
+  automatically; the playlist is refreshed at every start.
+* **Find channels fast:** search by name, or show only the countries and
+  languages you care about.
+* **Phone remote:** scan a QR code and control IPTV from any phone's browser:
+  browse, search, tap to watch (computers, Android TV, Google TV, Fire TV).
+* **Picture-in-picture:** a second channel in the corner on computers; on
+  Android, keep watching in a small window over other apps, or two channels
+  at once with the phone upright. Audio keeps playing with the screen off.
+* **Your language:** the apps speak English, Italian, Spanish, French, German
+  and Portuguese, and offer audio-language and subtitle choice on channels
+  that broadcast several.
+* **Moves with you:** take your favorites to another device with a small file.
+* **Updates itself** on every platform, from GitHub releases.
 
 A printable **quick start guide** (PDF) explains installing and using IPTV
 on every platform:
@@ -134,6 +153,11 @@ its channel. Turn it sideways again for one channel.
 **Picture-in-picture.** Leave the app (Home, or swipe up) while watching and
 the channel keeps playing in a small window over other apps, with buttons to
 change channel. Tap it to come back. (Android 8 or later.)
+
+**Screen off.** On phones and tablets the channel keeps playing with the
+screen off or the phone locked. The lock screen and the notification show it,
+with buttons to change channel or stop (✕ also closes IPTV); headphone and
+Bluetooth buttons change channel too.
 
 | Phone / tablet | Android TV remote | Action |
 | --- | --- | --- |
@@ -628,6 +652,18 @@ and the fallback. To improve a translation or add a language, edit:
 `cargo test` checks that every core / desktop message has all its
 translations, with the same `{0}` placeholders and line breaks. A new language
 also needs a `Lang` entry in `i18n.rs`.
+
+### The cover images
+
+`docs/images/iptv-overview.png` (top of this page) and
+`docs/images/social-preview.png` (the repository's link preview, set in
+*Settings → General → Social preview*) are rendered from the HTML files in
+`docs/images/src/`, for example with Edge or Chrome:
+
+```sh
+msedge --headless --window-size=1080,1350 --screenshot=iptv-overview.png docs/images/src/poster.html
+msedge --headless --window-size=1280,640 --screenshot=social-preview.png docs/images/src/social.html
+```
 
 ### Building the quick start guides
 

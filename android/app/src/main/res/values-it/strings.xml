@@ -20,6 +20,8 @@
     <string name="favorites_none">Ancora nessun preferito da salvare (tieni premuto un canale per aggiungerlo).</string>
     <string name="favorites_no_picker">Questo dispositivo non può aprire file: usa il telecomando dal telefono per spostare i preferiti.</string>
     <string name="favorites_failed">Impossibile usare quel file: %1$s</string>
+    <string name="playback">Riproduzione</string>
+    <string name="stop">Interrompi</string>
     <string name="pip_up">Canale successivo</string>
     <string name="pip_down">Canale precedente</string>
     <string name="split_hint">Due canali: tocca una metà per sentirla, scorri su una metà per cambiarne il canale. Gira il telefono in orizzontale per uno solo.</string>

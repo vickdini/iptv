@@ -86,6 +86,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("androidx.media3:media3-exoplayer-dash:$media3")
     implementation("androidx.media3:media3-ui:$media3")
+    implementation("androidx.media3:media3-session:$media3")
     // Casting to Chromecast (Google's Default Media Receiver). Needs Google Play
     // services at runtime; on devices without them (Fire TV) casting is hidden.
     implementation("androidx.media3:media3-cast:$media3")

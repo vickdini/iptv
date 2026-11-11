@@ -6,6 +6,15 @@ What's new in each version of IPTV. Downloads for every version are on the
 When releasing, add a section for the new version at the top. The release
 workflow uses that section as the release notes.
 
+## [Unreleased]
+
+### Changed
+- **Android phones and tablets:** the channel keeps playing with the screen
+  off or the phone locked, with lock-screen controls (previous / next
+  channel, stop). Headphone and Bluetooth buttons change channel, and
+  unplugging headphones pauses.
+- **README:** a new cover image and a summary of everything IPTV does.
+
 ## [0.12.0] - 2026-11-11
 
 ### Added

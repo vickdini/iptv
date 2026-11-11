@@ -20,6 +20,8 @@
     <string name="favorites_none">Pas encore de favoris à enregistrer (appui long sur une chaîne pour l\'ajouter).</string>
     <string name="favorites_no_picker">Cet appareil ne peut pas ouvrir de fichiers : utilisez la télécommande du téléphone pour déplacer les favoris.</string>
     <string name="favorites_failed">Impossible d\'utiliser ce fichier : %1$s</string>
+    <string name="playback">Lecture</string>
+    <string name="stop">Arrêter</string>
     <string name="pip_up">Chaîne suivante</string>
     <string name="pip_down">Chaîne précédente</string>
     <string name="split_hint">Deux chaînes : touchez une moitié pour l\'entendre, faites glisser une moitié pour changer sa chaîne. Tournez le téléphone à l\'horizontale pour une seule.</string>

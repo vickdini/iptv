@@ -20,6 +20,8 @@
     <string name="favorites_none">Ainda não há favoritos para guardar (toque longo num canal para o adicionar).</string>
     <string name="favorites_no_picker">Este dispositivo não consegue abrir ficheiros: use o comando no telemóvel para mover os favoritos.</string>
     <string name="favorites_failed">Não foi possível usar esse ficheiro: %1$s</string>
+    <string name="playback">Reprodução</string>
+    <string name="stop">Parar</string>
     <string name="pip_up">Canal seguinte</string>
     <string name="pip_down">Canal anterior</string>
     <string name="split_hint">Dois canais: toque numa metade para a ouvir, deslize numa metade para mudar o seu canal. Rode o telemóvel na horizontal para ver só um.</string>

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1080px; height: 1350px; overflow: hidden; }
+  body {
+    font-family: "Inter", "Segoe UI", sans-serif;
+    color: #fff;
+    background:
+      radial-gradient(900px 600px at 85% 8%, rgba(124, 58, 237, .55), transparent 60%),
+      radial-gradient(800px 700px at 0% 55%, rgba(64, 140, 255, .35), transparent 60%),
+      linear-gradient(160deg, #0b1020 0%, #121735 55%, #0a0d1a 100%);
+    position: relative;
+  }
+
+  /* ---------- header ---------- */
+  .brand { position: absolute; top: 56px; left: 64px; display: flex; align-items: center; gap: 16px; }
+  .brand img { width: 64px; height: 64px; }
+  .brand span { font-size: 30px; font-weight: 800; letter-spacing: .5px; }
+  .free { position: absolute; top: 66px; right: 64px; padding: 10px 20px; border-radius: 999px;
+          background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.25);
+          font-size: 22px; font-weight: 600; }
+  h1 { position: absolute; top: 160px; left: 64px; right: 64px;
+       font-size: 76px; line-height: 1.04; font-weight: 900; letter-spacing: -2px; }
+  h1 .hl { background: linear-gradient(90deg, #ffd040, #ff9f43); -webkit-background-clip: text; color: transparent; }
+  .sub { position: absolute; top: 340px; left: 64px; right: 64px; font-size: 30px; color: #c9cfe6; font-weight: 500; }
+
+  /* ---------- TV ---------- */
+  .tv { position: absolute; top: 430px; left: 64px; width: 800px; }
+  .tv .frame { background: #05060a; border-radius: 18px; padding: 14px; box-shadow: 0 40px 80px rgba(0,0,0,.6), 0 0 0 2px #232838; }
+  .screen { position: relative; height: 420px; border-radius: 8px; overflow: hidden;
+            background:
+              radial-gradient(260px 180px at 70% 35%, rgba(255,200,120,.9), transparent 70%),
+              radial-gradient(420px 260px at 75% 80%, rgba(32,160,180,.85), transparent 70%),
+              linear-gradient(180deg, #1f6fa8 0%, #3aa3c8 45%, #0f4d6b 100%); }
+  /* abstract "ocean documentary" picture */
+  .wave { position: absolute; left: -10%; width: 120%; height: 140px; border-radius: 50%; }
+  .wave.w1 { bottom: -60px; background: rgba(10,60,90,.85); }
+  .wave.w2 { bottom: -95px; background: rgba(6,40,64,.95); left: -30%; }
+  .sun { position: absolute; top: 70px; right: 140px; width: 110px; height: 110px; border-radius: 50%;
+         background: radial-gradient(circle, #fff7d6, #ffd27a 60%, rgba(255,210,122,0) 72%); }
+  .panel { position: absolute; top: 0; left: 0; bottom: 0; width: 360px; background: rgba(18,18,22,.93); padding: 22px 0 0; }
+  .panel .t { font-size: 22px; font-weight: 800; padding: 0 22px; }
+  .panel .k { font-size: 12px; color: #a8adbd; padding: 4px 22px 10px; }
+  .row { display: flex; align-items: center; height: 38px; margin: 0 8px; padding: 0 12px; border-radius: 6px; font-size: 17px; }
+  .row .n { width: 40px; color: #9aa0b3; text-align: right; margin-right: 10px; font-size: 15px; }
+  .lg { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 24px; margin-right: 10px;
+        border-radius: 5px; font-size: 10px; font-weight: 900; font-style: normal; letter-spacing: -.3px; color: #fff; flex: none; }
+  .row.sel { background: #1e5aa0; }
+  .row.play { color: #ffd040; font-weight: 600; }
+  .banner { position: absolute; top: 22px; right: 22px; background: rgba(0,0,0,.6); border-radius: 10px;
+            padding: 12px 18px; font-size: 20px; font-weight: 700; line-height: 1.3; }
+  .banner small { display: block; font-size: 15px; font-weight: 500; color: #d7dbea; }
+  .stand { width: 220px; height: 16px; margin: 0 auto; background: #1a1d28; border-radius: 0 0 12px 12px; }
+
+  /* ---------- remote ---------- */
+  .remote { position: absolute; top: 560px; left: 900px; width: 116px; height: 420px; border-radius: 58px;
+            background: linear-gradient(180deg, #2a2f3f, #161925); box-shadow: 0 30px 60px rgba(0,0,0,.6), inset 0 0 0 2px #3a4055;
+            transform: rotate(8deg); }
+  .remote .pwr { width: 22px; height: 22px; border-radius: 50%; background: #e53935; margin: 30px auto 0; }
+  .remote .ch { margin: 40px auto 0; width: 60px; height: 150px; border-radius: 30px; background: #0f121b;
+                display: flex; flex-direction: column; justify-content: space-between; align-items: center; padding: 14px 0;
+                box-shadow: inset 0 0 0 2px #2c3244; }
+  .remote .ch b { font-size: 26px; color: #fff; }
+  .remote .ch .up { color: #ffd040; text-shadow: 0 0 18px rgba(255,208,64,.9); }
+  .remote .ch i { font-style: normal; font-size: 15px; color: #8a91a8; font-weight: 700; }
+  .remote .dots { display: grid; grid-template-columns: repeat(3, 16px); gap: 12px; justify-content: center; margin-top: 34px; }
+  .remote .dots span { width: 16px; height: 16px; border-radius: 50%; background: #3a4055; }
+  .press { position: absolute; top: 520px; left: 870px; font-size: 20px; font-weight: 800; color: #ffd040; transform: rotate(8deg); }
+
+  /* ---------- phone ---------- */
+  .phone { position: absolute; top: 760px; left: 640px; width: 230px; height: 420px; border-radius: 34px; padding: 10px;
+           background: #05060a; box-shadow: 0 40px 70px rgba(0,0,0,.7), 0 0 0 2px #2a2f40; }
+  .phone .in { width: 100%; height: 100%; border-radius: 26px; background: #141414; overflow: hidden; padding: 30px 12px 0; }
+  .phone .st { font-size: 15px; font-weight: 800; }
+  .phone .box { margin: 10px 0 8px; background: #2a2a2a; border: 2px solid #1e5aa0; border-radius: 8px; padding: 8px 10px;
+                font-size: 15px; display: flex; gap: 8px; align-items: center; }
+  .phone .box .cur { display: inline-block; width: 2px; height: 16px; background: #fff; margin-left: 1px; vertical-align: middle; }
+  .phone .r { display: flex; height: 30px; align-items: center; font-size: 13px; border-radius: 5px; padding: 0 6px; }
+  .phone .r .n { width: 34px; color: #9aa0b3; text-align: right; margin-right: 8px; font-size: 12px; }
+  .phone .r.sel { background: #1e5aa0; }
+  .phone .now { display: flex; align-items: center; gap: 8px; background: #1d2026; border-radius: 10px; padding: 8px; margin: 2px 0 8px; }
+  .phone .now .lg { width: 34px; height: 22px; margin: 0; }
+  .phone .now b { font-size: 17px; color: #4d9bff; }
+  .phone .now span { font-size: 12px; font-weight: 700; line-height: 1.2; }
+  .phone .pad { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-bottom: 8px; }
+  .phone .pad i { font-style: normal; height: 30px; border-radius: 7px; background: #2a2e36; display: flex; align-items: center;
+                  justify-content: center; font-size: 12px; font-weight: 700; }
+  .phone .pad i.p { background: #4d9bff; color: #0b1220; }
+  .phone .r .lg { width: 26px; height: 16px; font-size: 7px; margin-right: 6px; }
+
+  /* ---------- platforms + features ---------- */
+  .platforms { position: absolute; top: 1000px; left: 64px; width: 560px; display: flex; flex-wrap: wrap; gap: 9px; }
+  .platforms span { padding: 9px 16px; border-radius: 999px; background: rgba(255,255,255,.08);
+                    border: 1px solid rgba(255,255,255,.18); font-size: 17px; font-weight: 600; }
+  .features { position: absolute; top: 1150px; left: 64px; width: 600px; display: grid; grid-template-columns: auto auto; justify-content: start; gap: 8px 30px;
+              font-size: 20px; font-weight: 600; color: #e6e9f5; }
+  .features div::before { content: "✓"; color: #43d17a; font-weight: 900; margin-right: 10px; }
+  .footer { position: absolute; bottom: 34px; left: 64px; right: 64px; display: flex; justify-content: space-between;
+            font-size: 20px; color: #9aa3c4; font-weight: 500; }
+  .footer b { color: #fff; font-weight: 700; }
+</style>
+</head>
+<body>
+  <div class="brand"><img src="icon.png" alt=""><span>IPTV</span></div>
+  <div class="free">Free &amp; open source</div>
+
+  <h1>Free TV from <span class="hl">11,000+</span><br>public channels.</h1>
+  <div class="sub">Just press Channel Up — like a real TV. On every screen.</div>
+
+  <div class="tv">
+    <div class="frame">
+      <div class="screen">
+        <div class="sun"></div>
+        <div class="wave w1"></div>
+        <div class="wave w2"></div>
+        <div class="panel">
+          <div class="t">All channels (8,376)</div>
+          <div class="k">◀ ▶ recent, groups &nbsp; ★ favorites &nbsp; 🔍 search</div>
+          <div class="row"><span class="n">101</span><i class="lg" style="background:#c62828">W24</i>World News 24</div>
+          <div class="row"><span class="n">102</span><i class="lg" style="background:#6a1b9a">CM</i>Classic Movies</div>
+          <div class="row sel play"><span class="n">103</span><i class="lg" style="background:#0277bd">OCN</i>▶ Ocean Documentaries</div>
+          <div class="row"><span class="n">104</span><i class="lg" style="background:#ef6c00">J&amp;S</i>Jazz &amp; Soul TV</div>
+          <div class="row"><span class="n">105</span><i class="lg" style="background:#2e7d32">KIDS</i>Kids Cartoons</div>
+          <div class="row"><span class="n">106</span><i class="lg" style="background:#455a64">MTN</i>Mountain Weather Cam</div>
+          <div class="row"><span class="n">107</span><i class="lg" style="background:#00838f">SCI</i>Science Today</div>
+          <div class="row"><span class="n">108</span><i class="lg" style="background:#ad1457">RMH</i>Retro Music Hits</div>
+        </div>
+        <div class="banner">103 &nbsp;Ocean Documentaries<small>Documentary · Nature</small></div>
+      </div>
+    </div>
+    <div class="stand"></div>
+  </div>
+
+  <div class="press">CH ▲</div>
+  <div class="remote">
+    <div class="pwr"></div>
+    <div class="ch"><b class="up">▲</b><i>CH</i><b>▼</b></div>
+    <div class="dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+  </div>
+
+  <div class="phone"><div class="in">
+    <div class="st">📱 Phone remote</div>
+    <div class="now"><i class="lg" style="background:#0277bd">OCN</i><b>103</b><span>Ocean<br>Documentaries</span></div>
+    <div class="pad"><i class="p">CH ▲</i><i>⟲</i><i>🔊+</i><i class="p">CH ▼</i><i>ⓘ</i><i>🔉−</i></div>
+    <div class="r"><span class="n">101</span><i class="lg" style="background:#c62828">W24</i>World News 24</div>
+    <div class="r"><span class="n">102</span><i class="lg" style="background:#6a1b9a">CM</i>Classic Movies</div>
+    <div class="r sel"><span class="n">103</span><i class="lg" style="background:#0277bd">OCN</i>Ocean Docs</div>
+    <div class="r"><span class="n">104</span><i class="lg" style="background:#ef6c00">J&amp;S</i>Jazz &amp; Soul TV</div>
+    <div class="r"><span class="n">105</span><i class="lg" style="background:#2e7d32">KIDS</i>Kids Cartoons</div>
+    <div class="r"><span class="n">106</span><i class="lg" style="background:#455a64">MTN</i>Mountain Cam</div>
+  </div></div>
+
+  <div class="platforms">
+    <span>Windows</span><span>macOS</span><span>Linux</span><span>Android</span><span>Android TV</span>
+    <span>Fire TV</span><span>Google TV</span><span>Samsung TV</span><span>Chromecast</span>
+  </div>
+
+  <div class="features">
+    <div>Search, logos &amp; favorites</div>
+    <div>Phone remote</div>
+    <div>Hides dead channels</div>
+    <div>6 languages</div>
+    <div>Picture-in-picture</div>
+    <div>Updates itself</div>
+  </div>
+
+  <div class="footer"><span>Built in <b>Rust</b> · runs on every screen</span><span><b>github.com/vickdini/iptv</b></span></div>
+</body>
+</html>

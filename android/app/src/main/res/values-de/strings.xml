@@ -20,6 +20,8 @@
     <string name="favorites_none">Noch keine Favoriten zum Speichern (einen Sender lange drücken, um ihn hinzuzufügen).</string>
     <string name="favorites_no_picker">Dieses Gerät kann keine Dateien öffnen: Übertrage die Favoriten mit der Handy-Fernbedienung.</string>
     <string name="favorites_failed">Diese Datei kann nicht verwendet werden: %1$s</string>
+    <string name="playback">Wiedergabe</string>
+    <string name="stop">Stopp</string>
     <string name="pip_up">Nächster Sender</string>
     <string name="pip_down">Vorheriger Sender</string>
     <string name="split_hint">Zwei Sender: Tippe auf eine Hälfte, um sie zu hören, wische über eine Hälfte, um ihren Sender zu wechseln. Für einen Sender das Handy quer halten.</string>

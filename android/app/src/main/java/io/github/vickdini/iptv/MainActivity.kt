@@ -54,6 +54,8 @@ import android.graphics.drawable.Icon
 import android.util.Rational
 import androidx.core.content.ContextCompat
 import androidx.media3.common.VideoSize
+import androidx.media3.common.ForwardingPlayer
+import androidx.media3.session.MediaSession
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.media.AudioManager
@@ -89,7 +91,8 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val PLAYLIST_URL = "https://iptv-org.github.io/iptv/index.m3u"
         private const val TAG = "IPTV"
-        private const val PIP_ACTION = "io.github.vickdini.iptv.PIP"
+        /** Buttons of the picture-in-picture window and the playback notification. */
+        const val PIP_ACTION = "io.github.vickdini.iptv.PIP"
     }
 
     /** One picture: a player, its view and what it plays. */
@@ -106,6 +109,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var panes: Array<Pane>
+    /** Media session (lock screen controls, headphone buttons) for the pane with the sound. */
+    private var session: MediaSession? = null
+
+    /** The player as the lock screen sees it: previous / next change channel. */
+    private inner class ZapPlayer(player: ExoPlayer) : ForwardingPlayer(player) {
+        override fun getAvailableCommands(): Player.Commands = super.getAvailableCommands().buildUpon()
+            .addAll(
+                Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+            ).build()
+
+        override fun isCommandAvailable(command: Int) = when (command) {
+            Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+            Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> true
+            else -> super.isCommandAvailable(command)
+        }
+
+        override fun hasNextMediaItem() = true
+        override fun hasPreviousMediaItem() = true
+        override fun seekToNext() = tvAction("up")
+        override fun seekToNextMediaItem() = tvAction("up")
+        override fun seekToPrevious() = tvAction("down")
+        override fun seekToPreviousMediaItem() = tvAction("down")
+    }
     /** The pane with the sound: the core's current channel. */
     private var active = 0
     /** Two pictures on screen (phone or tablet held upright). */
@@ -114,7 +141,11 @@ class MainActivity : AppCompatActivity() {
     private val currentTune: JSONObject? get() = panes[active].tune
     private val pipReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            intent.getStringExtra("action")?.let { tvAction(it) }
+            when (val action = intent.getStringExtra("action")) {
+                null -> {}
+                "stop" -> exitApp()
+                else -> tvAction(action)
+            }
         }
     }
     private lateinit var osd: TextView
@@ -240,7 +271,15 @@ class MainActivity : AppCompatActivity() {
             Pane(findViewById(R.id.pane0), findViewById(R.id.player), findViewById(R.id.label0)),
             Pane(findViewById(R.id.pane1), findViewById(R.id.player2), findViewById(R.id.label1)),
         )
-        panes.forEach { pane -> pane.exo.addListener(paneListener(pane)) }
+        panes.forEach { pane ->
+            pane.exo.addListener(paneListener(pane))
+            // Keep the CPU and Wi-Fi awake while playing with the screen off.
+            pane.exo.setWakeMode(C.WAKE_MODE_NETWORK)
+            pane.exo.setHandleAudioBecomingNoisy(true) // headphones unplugged: pause
+        }
+        // Lock screen / notification controls and headphone buttons.
+        session = runCatching { MediaSession.Builder(this, ZapPlayer(panes[active].exo)).build() }.getOrNull()
+        PlaybackService.session = session
         ContextCompat.registerReceiver(this, pipReceiver, IntentFilter(PIP_ACTION), ContextCompat.RECEIVER_NOT_EXPORTED)
 
         setupCast()
@@ -334,8 +373,31 @@ class MainActivity : AppCompatActivity() {
         }
         showLabel(pane)
         updatePip()
+        keepPlayingInBackground(e)
         if (panel.visibility == View.VISIBLE) adapter.setCurrent(idx)
     }
+
+    private fun channelTitle(e: JSONObject) = "${e.optInt("number")}  ${e.optString("name")}"
+
+    /**
+     * Phones and tablets keep playing with the screen off or locked: a media
+     * playback service keeps the app running, with lock screen controls.
+     * Started while the app is on screen (Android only allows it then);
+     * later calls just update the channel shown.
+     */
+    private fun keepPlayingInBackground(e: JSONObject? = currentTune) {
+        if (isTv() || casting || e == null) return
+        if (isFinishing) return
+        if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+            PlaybackService.start(this, channelTitle(e))
+        } else {
+            PlaybackService.update(this, channelTitle(e))
+        }
+    }
+
+    /** Playing on its own in the background (screen off / locked) instead of stopping. */
+    private fun playsInBackground() =
+        !isTv() && !casting && loaded && !isFinishing && currentTune != null && player.playWhenReady
 
     private fun startStream(e: JSONObject, forceHls: Boolean) = startStream(panes[active], e, forceHls)
 
@@ -359,6 +421,7 @@ class MainActivity : AppCompatActivity() {
         if (!e.isNull("referrer")) http.setDefaultRequestProperties(mapOf("Referer" to e.getString("referrer")))
         val item = MediaItem.Builder().setUri(url).apply {
             if (forceHls || url.contains(".m3u8", ignoreCase = true)) setMimeType(MimeTypes.APPLICATION_M3U8)
+            setMediaMetadata(MediaMetadata.Builder().setTitle(channelTitle(e)).setArtist("IPTV").build())
         }.build()
         applyTrackPrefs(pane.exo)
         pane.exo.setMediaSource(DefaultMediaSourceFactory(http).createMediaSource(item))
@@ -452,6 +515,7 @@ class MainActivity : AppCompatActivity() {
     private fun activate(i: Int) {
         if (i == active || !split) return
         active = i
+        session?.player = ZapPlayer(panes[active].exo)
         updateLayout()
         val idx = panes[active].idx
         if (idx >= 0) perform(Core.tuneTo(idx)) // same channel: keeps playing
@@ -1085,6 +1149,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Stops playback (also on a Chromecast), saves, and closes the app. */
     private fun exitApp() {
+        PlaybackService.stop(this)
         player.stop()
         if (casting) {
             runCatching {
@@ -1183,8 +1248,12 @@ class MainActivity : AppCompatActivity() {
         super.onStart()
         if (loaded) {
             if (!casting) {
-                currentTune?.let { startStream(it, forceHls = panes[active].triedHls) }
-                if (split) other.tune?.let { startStream(other, it, forceHls = other.triedHls) }
+                // Back from the lock screen the channel may still be playing:
+                // only restart what was stopped.
+                fun idle(p: Pane) = p.exo.playbackState == Player.STATE_IDLE
+                currentTune?.takeIf { idle(panes[active]) }?.let { startStream(it, forceHls = panes[active].triedHls) }
+                if (split) other.tune?.takeIf { idle(other) }?.let { startStream(other, it, forceHls = other.triedHls) }
+                keepPlayingInBackground()
             }
             handler.removeCallbacks(pollTask)
             handler.post(pollTask)
@@ -1196,15 +1265,25 @@ class MainActivity : AppCompatActivity() {
         // Still showing in a picture-in-picture window: keep playing. (When that
         // window is closed, onStop runs again and stops it.)
         if (inPip()) return
+        handler.removeCallbacks(pollTask)
+        if (loaded) Core.save()
+        // Screen off, locked or another app in front: phones and tablets keep
+        // the channel with the sound playing (the silent second one stops).
+        if (playsInBackground()) {
+            if (split) other.exo.stop()
+            return
+        }
+        PlaybackService.stop(this)
         // Silent updates happen when the user leaves, so nothing is interrupted.
         if (Updater.ready != null && Updater.canInstallSilently(this)) Updater.install(this)
         panes.forEach { it.exo.stop() } // a Chromecast keeps playing while the phone is locked
-        handler.removeCallbacks(pollTask)
-        if (loaded) Core.save()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        PlaybackService.stop(this)
+        PlaybackService.session = null
+        session?.release()
         panes.forEach { it.exo.release() }
         runCatching { unregisterReceiver(pipReceiver) }
         castPlayer?.release()

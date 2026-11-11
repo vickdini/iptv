@@ -21,6 +21,8 @@
     <string name="favorites_none">No favorites to save yet (long-press a channel to add one).</string>
     <string name="favorites_no_picker">This device can\'t open files: use the phone remote to move favorites.</string>
     <string name="favorites_failed">Couldn\'t use that file: %1$s</string>
+    <string name="playback">Playback</string>
+    <string name="stop">Stop</string>
     <string name="pip_up">Next channel</string>
     <string name="pip_down">Previous channel</string>
     <string name="split_hint">Two channels: tap a half to hear it, swipe a half to change its channel. Turn the phone sideways for one.</string>
