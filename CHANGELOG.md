@@ -6,6 +6,22 @@ What's new in each version of IPTV. Downloads for every version are on the
 When releasing, add a section for the new version at the top. The release
 workflow uses that section as the release notes.
 
+## [Unreleased]
+
+### Added
+- **Two channels at once on phones and tablets:** hold the device upright
+  and the screen splits in two, one channel above the other. Tap a half to
+  hear it, swipe a half to change its channel.
+- **Picture-in-picture:**
+  - Android: leave the app while watching, and the channel keeps playing in
+    a small window over other apps, with channel buttons.
+  - Computers: **p** shows a second channel, small and silent, in the
+    bottom-right corner over the big one. **[** / **]** change its channel,
+    and **x** (or a click on it) swaps the two.
+
+### Changed
+- **Computers:** **p** no longer pauses; use **Space**.
+
 ## [0.9.0] - 2026-11-11
 
 ### Added

@@ -40,7 +40,18 @@ import androidx.media3.cast.SessionAvailabilityListener
 import androidx.media3.common.MediaMetadata
 import androidx.mediarouter.app.MediaRouteButton
 import android.content.pm.PackageManager
+import android.app.PendingIntent
+import android.app.PictureInPictureParams
+import android.app.RemoteAction
 import android.app.UiModeManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.graphics.drawable.Icon
+import android.util.Rational
+import androidx.core.content.ContextCompat
+import androidx.media3.common.VideoSize
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.media.AudioManager
@@ -64,6 +75,11 @@ import kotlin.math.abs
  * Phone: swipe up/down = change channel, tap = channel list, double-tap =
  * previous channel, long-press = info. Remote: Up/Down = channel, OK = list
  * (or confirm a typed number), Left/Right = group, digits = channel number.
+ *
+ * Phones and tablets held upright show two channels, one above the other
+ * ([Pane]s): the "active" one has the sound and is the core's current
+ * channel; the other zaps on its own. Leaving the app keeps the active
+ * channel playing in a picture-in-picture window.
  */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class MainActivity : AppCompatActivity() {
@@ -71,9 +87,34 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val PLAYLIST_URL = "https://iptv-org.github.io/iptv/index.m3u"
         private const val TAG = "IPTV"
+        private const val PIP_ACTION = "io.github.vickdini.iptv.PIP"
     }
 
-    private lateinit var player: ExoPlayer
+    /** One picture: a player, its view and what it plays. */
+    private inner class Pane(val frame: FrameLayout, view: PlayerView, val label: TextView) {
+        val exo: ExoPlayer = ExoPlayer.Builder(this@MainActivity).build().also { view.player = it }
+        /** The stream it plays (a core "tune" effect or [Core.streamInfo]). */
+        var tune: JSONObject? = null
+        var idx = -1
+        var triedHls = false
+        /** Second picture: direction of the last zap, and failures in a row. */
+        var forward = true
+        var fails = 0
+        val hideLabel = Runnable { label.visibility = View.GONE }
+    }
+
+    private lateinit var panes: Array<Pane>
+    /** The pane with the sound: the core's current channel. */
+    private var active = 0
+    /** Two pictures on screen (phone or tablet held upright). */
+    private var split = false
+    private val player: ExoPlayer get() = panes[active].exo
+    private val currentTune: JSONObject? get() = panes[active].tune
+    private val pipReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            intent.getStringExtra("action")?.let { tvAction(it) }
+        }
+    }
     private lateinit var osd: TextView
     private lateinit var status: TextView
     private lateinit var panel: View
@@ -95,9 +136,7 @@ class MainActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private var loaded = false
-    private var currentTune: JSONObject? = null
     private var currentSeq = 0
-    private var triedHls = false
     private var digitsPending = false
     /** Chromecast playback; null where Google Play services are missing (Fire TV). */
     private var castPlayer: CastPlayer? = null
@@ -171,26 +210,12 @@ class MainActivity : AppCompatActivity() {
         }
         onBackPressedDispatcher.addCallback(this, backClosesPanel)
 
-        player = ExoPlayer.Builder(this).build()
-        findViewById<PlayerView>(R.id.player).player = player
-        player.addListener(object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) {
-                val tune = currentTune ?: return
-                // URLs without an .m3u8 extension may still be HLS: retry once as HLS.
-                if (!triedHls && error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED) {
-                    triedHls = true
-                    startStream(tune, forceHls = true)
-                    return
-                }
-                perform(Core.playbackFailed(currentSeq))
-            }
-
-            override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) Core.playbackStarted(currentSeq)
-            }
-
-            override fun onTracksChanged(tracks: Tracks) = onTracks()
-        })
+        panes = arrayOf(
+            Pane(findViewById(R.id.pane0), findViewById(R.id.player), findViewById(R.id.label0)),
+            Pane(findViewById(R.id.pane1), findViewById(R.id.player2), findViewById(R.id.label1)),
+        )
+        panes.forEach { pane -> pane.exo.addListener(paneListener(pane)) }
+        ContextCompat.registerReceiver(this, pipReceiver, IntentFilter(PIP_ACTION), ContextCompat.RECEIVER_NOT_EXPORTED)
 
         setupCast()
         setupGestures()
@@ -218,6 +243,7 @@ class MainActivity : AppCompatActivity() {
                     loaded = true
                     setSearchText(Core.searchText())
                     perform(Core.start())
+                    updateLayout()
                     handler.removeCallbacks(pollTask)
                     handler.post(pollTask)
                     // Turned on once, the phone remote starts with the app.
@@ -261,14 +287,28 @@ class MainActivity : AppCompatActivity() {
 
     private fun tune(e: JSONObject) {
         Log.d(TAG, "tune #${e.getInt("seq")}: ${e.getInt("number")} ${e.getString("name")}")
-        currentTune = e
         currentSeq = e.getInt("seq")
-        triedHls = false
-        startStream(e, forceHls = false)
-        if (panel.visibility == View.VISIBLE) adapter.setCurrent(e.getInt("idx"))
+        val pane = panes[active]
+        val idx = e.getInt("idx")
+        val state = pane.exo.playbackState
+        if (!casting && pane.idx == idx && (state == Player.STATE_READY || state == Player.STATE_BUFFERING)) {
+            // Already playing here (the sound moved to this half): keep it going.
+            pane.tune = e
+            if (state == Player.STATE_READY) Core.playbackStarted(currentSeq)
+        } else {
+            pane.tune = e
+            pane.idx = idx
+            pane.triedHls = false
+            startStream(pane, e, forceHls = false)
+        }
+        showLabel(pane)
+        updatePip()
+        if (panel.visibility == View.VISIBLE) adapter.setCurrent(idx)
     }
 
-    private fun startStream(e: JSONObject, forceHls: Boolean) {
+    private fun startStream(e: JSONObject, forceHls: Boolean) = startStream(panes[active], e, forceHls)
+
+    private fun startStream(pane: Pane, e: JSONObject, forceHls: Boolean) {
         val url = e.getString("url")
         castPlayer?.takeIf { casting }?.let { cast ->
             val item = MediaItem.Builder().setUri(url)
@@ -289,10 +329,179 @@ class MainActivity : AppCompatActivity() {
         val item = MediaItem.Builder().setUri(url).apply {
             if (forceHls || url.contains(".m3u8", ignoreCase = true)) setMimeType(MimeTypes.APPLICATION_M3U8)
         }.build()
-        applyTrackPrefs()
-        player.setMediaSource(DefaultMediaSourceFactory(http).createMediaSource(item))
-        player.prepare()
-        player.playWhenReady = true
+        applyTrackPrefs(pane.exo)
+        pane.exo.setMediaSource(DefaultMediaSourceFactory(http).createMediaSource(item))
+        pane.exo.prepare()
+        pane.exo.playWhenReady = true
+        pane.exo.volume = if (pane === panes[active]) 1f else 0f
+    }
+
+    /** Events of one pane's player. Only the active pane reports to the core. */
+    private fun paneListener(pane: Pane) = object : Player.Listener {
+        override fun onPlayerError(error: PlaybackException) {
+            val tune = pane.tune ?: return
+            // URLs without an .m3u8 extension may still be HLS: retry once as HLS.
+            if (!pane.triedHls && error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED) {
+                pane.triedHls = true
+                startStream(pane, tune, forceHls = true)
+                return
+            }
+            if (pane === panes[active]) perform(Core.playbackFailed(currentSeq))
+            else if (split && ++pane.fails < 20) zapOther(pane.forward) // quietly try the next one
+        }
+
+        override fun onPlaybackStateChanged(state: Int) {
+            if (state != Player.STATE_READY) return
+            pane.fails = 0
+            if (pane === panes[active]) Core.playbackStarted(currentSeq)
+        }
+
+        override fun onTracksChanged(tracks: Tracks) {
+            if (pane === panes[active]) onTracks()
+        }
+
+        override fun onVideoSizeChanged(videoSize: VideoSize) {
+            if (pane === panes[active]) updatePip()
+        }
+    }
+
+    // --- split screen -------------------------------------------------------------
+
+    private val other: Pane get() = panes[1 - active]
+
+    /** Upright phone or tablet: two pictures; otherwise (and in PiP, or casting) one. */
+    private fun updateLayout() {
+        val portrait = resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+        val want = loaded && portrait && !isTv() && !casting && !inPip()
+        if (want != split) {
+            split = want
+            if (split) {
+                if (other.idx < 0) {
+                    // Start with the previous channel, else the next one.
+                    val prev = Core.previousChannel().toInt()
+                    val first = if (prev >= 0 && prev != panes[active].idx) prev
+                        else Core.neighbor(panes[active].idx.coerceAtLeast(0), 1).toInt()
+                    if (first >= 0) playIn(other, first)
+                } else {
+                    other.tune?.let { startStream(other, it, forceHls = other.triedHls) }
+                }
+                showOsd(getString(R.string.split_hint), 5000)
+            } else {
+                other.exo.stop()
+            }
+        }
+        panes.forEachIndexed { i, pane ->
+            pane.frame.visibility = if (split || i == active) View.VISIBLE else View.GONE
+            pane.frame.foreground = if (split && i == active) ContextCompat.getDrawable(this, R.drawable.pane_active) else null
+            pane.exo.volume = if (i == active) 1f else 0f
+            if (!split) pane.label.visibility = View.GONE
+        }
+    }
+
+    /** Plays a channel in the second picture (the core's channel doesn't change). */
+    private fun playIn(pane: Pane, idx: Int) {
+        val e = JSONObject(Core.streamInfo(idx))
+        if (!e.has("url")) return
+        pane.tune = e
+        pane.idx = idx
+        pane.triedHls = false
+        startStream(pane, e, forceHls = false)
+        showLabel(pane)
+    }
+
+    /** Swipe on the half without sound: zap it. */
+    private fun zapOther(forward: Boolean) {
+        val pane = other
+        pane.forward = forward
+        val next = Core.neighbor(pane.idx.coerceAtLeast(0), if (forward) 1 else 0).toInt()
+        if (next >= 0) playIn(pane, next)
+    }
+
+    /** Tap on the half without sound: it gets the sound, the channel list and the remote. */
+    private fun activate(i: Int) {
+        if (i == active || !split) return
+        active = i
+        updateLayout()
+        val idx = panes[active].idx
+        if (idx >= 0) perform(Core.tuneTo(idx)) // same channel: keeps playing
+        lastPlayerInfo = ""
+        onTracks()
+    }
+
+    /** Channel number and name at the bottom of a half, for a few seconds. */
+    private fun showLabel(pane: Pane) {
+        val e = pane.tune ?: return
+        if (!split) return
+        pane.label.text = "${e.getInt("number")}  ${e.getString("name")}"
+        pane.label.visibility = View.VISIBLE
+        handler.removeCallbacks(pane.hideLabel)
+        handler.postDelayed(pane.hideLabel, 3000)
+    }
+
+    /** Which half a touch at [y] (in the gesture layer) is on. */
+    private fun paneAt(y: Float): Int {
+        if (!split) return active
+        val h = findViewById<View>(R.id.touch).height
+        return if (y < h / 2f) 0 else 1
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateLayout()
+    }
+
+    // --- picture-in-picture --------------------------------------------------------
+
+    private fun inPip() = android.os.Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode
+
+    /** Phones and tablets keep playing in a small window when the user leaves the app. */
+    private fun canPip() = android.os.Build.VERSION.SDK_INT >= 26 && !isTv() && loaded && !casting &&
+        currentTune != null && packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+
+    @androidx.annotation.RequiresApi(26)
+    private fun pipParams(): PictureInPictureParams {
+        val size = player.videoSize
+        val ratio = if (size.width > 0 && size.height > 0)
+            (size.width * size.pixelWidthHeightRatio / size.height).coerceIn(0.42f, 2.38f) else 16f / 9f
+        fun action(name: String, icon: Int, title: Int, code: Int) = RemoteAction(
+            Icon.createWithResource(this, icon), getString(title), getString(title),
+            PendingIntent.getBroadcast(
+                this, code, Intent(PIP_ACTION).setPackage(packageName).putExtra("action", name),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            ),
+        )
+        val b = PictureInPictureParams.Builder()
+            .setAspectRatio(Rational((ratio * 1000).toInt(), 1000))
+            .setActions(listOf(
+                action("down", R.drawable.ic_pip_prev, R.string.pip_down, 1),
+                action("up", R.drawable.ic_pip_next, R.string.pip_up, 2),
+            ))
+        if (android.os.Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(canPip()).setSeamlessResizeEnabled(true)
+        return b.build()
+    }
+
+    /** Keeps the PiP window's shape and (Android 12+) automatic entry up to date. */
+    private fun updatePip() {
+        if (android.os.Build.VERSION.SDK_INT >= 26 && !isTv() &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+        ) runCatching { setPictureInPictureParams(pipParams()) }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // Android 8-11: enter PiP ourselves (12+ does it automatically).
+        if (android.os.Build.VERSION.SDK_INT in 26..30 && canPip()) {
+            runCatching { enterPictureInPictureMode(pipParams()) }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (isInPictureInPictureMode) {
+            hidePanel()
+            osd.visibility = View.GONE
+        }
+        updateLayout()
     }
 
     private fun showOsd(text: String, ms: Long) {
@@ -415,7 +624,12 @@ class MainActivity : AppCompatActivity() {
             override fun onDown(e: MotionEvent) = true
 
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                if (panel.visibility == View.VISIBLE) hidePanel() else showPanel()
+                val pane = paneAt(e.y)
+                when {
+                    pane != active && panel.visibility != View.VISIBLE -> activate(pane)
+                    panel.visibility == View.VISIBLE -> hidePanel()
+                    else -> showPanel()
+                }
                 return true
             }
 
@@ -428,7 +642,9 @@ class MainActivity : AppCompatActivity() {
 
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
                 if (abs(vy) > abs(vx) && abs(vy) > 500) {
-                    tvAction(if (vy < 0) "up" else "down") // swipe up = next channel
+                    // Swipe up = next channel, on the half where the swipe started.
+                    if (paneAt(e1?.y ?: e2.y) == active) tvAction(if (vy < 0) "up" else "down")
+                    else zapOther(forward = vy < 0)
                     return true
                 }
                 return false
@@ -510,11 +726,11 @@ class MainActivity : AppCompatActivity() {
         }
 
     /** Before each stream: the remembered languages, no leftover manual choice. */
-    private fun applyTrackPrefs() {
+    private fun applyTrackPrefs(exo: ExoPlayer) {
         val prefs = JSONObject(Core.trackPrefs())
         val audio = prefs.optString("audio").takeIf { !prefs.isNull("audio") && it.isNotEmpty() }
         val subs = prefs.optString("subtitles").takeIf { !prefs.isNull("subtitles") && it.isNotEmpty() }
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
             .clearOverrides()
             .setPreferredAudioLanguage(audio)
             .setPreferredTextLanguage(subs)
@@ -843,13 +1059,15 @@ class MainActivity : AppCompatActivity() {
         })
         cast.setSessionAvailabilityListener(object : SessionAvailabilityListener {
             override fun onCastSessionAvailable() {
-                player.stop()
-                currentTune?.let { startStream(it, forceHls = triedHls) }
+                panes.forEach { it.exo.stop() }
+                updateLayout()
+                currentTune?.let { startStream(it, forceHls = panes[active].triedHls) }
                 showOsd(getString(R.string.casting), 3000)
             }
 
             override fun onCastSessionUnavailable() {
-                currentTune?.let { startStream(it, forceHls = triedHls) }
+                currentTune?.let { startStream(it, forceHls = panes[active].triedHls) }
+                updateLayout()
             }
         })
     }
@@ -894,7 +1112,10 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         if (loaded) {
-            if (!casting) currentTune?.let { startStream(it, forceHls = triedHls) }
+            if (!casting) {
+                currentTune?.let { startStream(it, forceHls = panes[active].triedHls) }
+                if (split) other.tune?.let { startStream(other, it, forceHls = other.triedHls) }
+            }
             handler.removeCallbacks(pollTask)
             handler.post(pollTask)
         }
@@ -902,16 +1123,20 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        // Still showing in a picture-in-picture window: keep playing. (When that
+        // window is closed, onStop runs again and stops it.)
+        if (inPip()) return
         // Silent updates happen when the user leaves, so nothing is interrupted.
         if (Updater.ready != null && Updater.canInstallSilently(this)) Updater.install(this)
-        player.stop() // a Chromecast keeps playing while the phone is locked
+        panes.forEach { it.exo.stop() } // a Chromecast keeps playing while the phone is locked
         handler.removeCallbacks(pollTask)
         if (loaded) Core.save()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        player.release()
+        panes.forEach { it.exo.release() }
+        runCatching { unregisterReceiver(pipReceiver) }
         castPlayer?.release()
         io.shutdown()
     }

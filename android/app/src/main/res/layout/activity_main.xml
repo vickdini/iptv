@@ -5,15 +5,79 @@
     android:layout_height="match_parent"
     android:background="@android:color/black">
 
-    <androidx.media3.ui.PlayerView
-        android:id="@+id/player"
+    <!-- Two pictures: one fills the screen; in portrait on phones and tablets
+         both show, one above the other (split screen). -->
+    <LinearLayout
+        android:id="@+id/screens"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:focusable="false"
-        android:keepScreenOn="true"
-        app:resize_mode="fit"
-        app:show_buffering="when_playing"
-        app:use_controller="false" />
+        android:orientation="vertical">
+
+        <FrameLayout
+            android:id="@+id/pane0"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <androidx.media3.ui.PlayerView
+                android:id="@+id/player"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:focusable="false"
+                android:keepScreenOn="true"
+                app:resize_mode="fit"
+                app:show_buffering="when_playing"
+                app:use_controller="false" />
+
+            <TextView
+                android:id="@+id/label0"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|start"
+                android:layout_margin="12dp"
+                android:background="@drawable/osd_bg"
+                android:paddingStart="10dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="4dp"
+                android:textColor="@android:color/white"
+                android:textSize="16sp"
+                android:visibility="gone" />
+        </FrameLayout>
+
+        <FrameLayout
+            android:id="@+id/pane1"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:visibility="gone">
+
+            <androidx.media3.ui.PlayerView
+                android:id="@+id/player2"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:focusable="false"
+                android:keepScreenOn="true"
+                app:resize_mode="fit"
+                app:show_buffering="when_playing"
+                app:use_controller="false" />
+
+            <TextView
+                android:id="@+id/label1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|start"
+                android:layout_margin="12dp"
+                android:background="@drawable/osd_bg"
+                android:paddingStart="10dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="4dp"
+                android:textColor="@android:color/white"
+                android:textSize="16sp"
+                android:visibility="gone" />
+        </FrameLayout>
+    </LinearLayout>
 
     <!-- Gesture layer: swipe to zap, tap for the channel list. -->
     <View

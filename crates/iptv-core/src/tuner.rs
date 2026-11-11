@@ -422,6 +422,19 @@ impl Tuner {
         vec![Effect::Save]
     }
 
+    /// The next (or previous) channel after `from` in the current view,
+    /// skipping hidden ones: for a second picture that zaps on its own.
+    pub fn neighbor(&self, from: usize, forward: bool) -> Option<usize> {
+        (from < self.channels.len())
+            .then(|| self.step_from(from, forward))
+            .flatten()
+    }
+
+    /// The channel watched before the current one, if any.
+    pub fn previous(&self) -> Option<usize> {
+        self.previous
+    }
+
     /// Whether a channel shows up at all: working and in the chosen
     /// countries / languages (ignoring groups, favorites-only and search).
     pub fn is_listed(&self, idx: usize) -> bool {
@@ -741,7 +754,9 @@ a  audio language      t  subtitles   (when offered)
 r            phone remote (QR code to scan)
 g / G        next / previous group
 s  toggle favorite    S  favorites only
-f  fullscreen         q  quit";
+p  small picture: a second channel in the corner
+[ ]  its channel      x  swap the two channels
+f  fullscreen         space  pause      q  quit";
 
 #[cfg(test)]
 mod tests {

@@ -147,6 +147,9 @@ pub struct Options {
     pub fullscreen: bool,
     pub maximized: bool,
     pub volume: Option<u8>,
+    /// The small picture: a silent, borderless window that stays on top in
+    /// the bottom-right corner of the screen.
+    pub small: bool,
 }
 
 impl Mpv {
@@ -154,7 +157,7 @@ impl Mpv {
         mpv: &Path,
         opts: &Options,
     ) -> Result<(Self, mpsc::UnboundedReceiver<Event>)> {
-        let ipc = ipc_path();
+        let ipc = ipc_path(if opts.small { "-small" } else { "" });
         let input_conf = write_input_conf()?;
 
         let mut cmd = Command::new(mpv);
@@ -181,6 +184,16 @@ impl Mpv {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        if opts.small {
+            // A quarter of the screen wide, 24 px from the right edge, above the taskbar.
+            cmd.args([
+                "--ontop",
+                "--no-border",
+                "--geometry=25%-24-64",
+                "--mute=yes",
+                "--osd-level=0",
+            ]);
+        }
         if opts.fullscreen {
             cmd.arg("--fullscreen");
         }
@@ -387,7 +400,7 @@ fn write_input_conf() -> Result<PathBuf> {
     }
     // Letters and common symbols all go to the app, which decides: text while
     // searching, otherwise shortcuts (see main.rs `shortcut`).
-    for c in ('a'..='z').chain('A'..='Z').chain("/?-+.&'!():".chars()) {
+    for c in ('a'..='z').chain('A'..='Z').chain("/?-+.&'!():[]".chars()) {
         conf.push_str(&format!("{c}           script-message iptv key {c}\n"));
     }
     conf.push_str("SPACE       script-message iptv key space\n");
@@ -396,13 +409,13 @@ fn write_input_conf() -> Result<PathBuf> {
 }
 
 #[cfg(windows)]
-fn ipc_path() -> PathBuf {
-    PathBuf::from(format!(r"\\.\pipe\iptv-mpv-{}", std::process::id()))
+fn ipc_path(tag: &str) -> PathBuf {
+    PathBuf::from(format!(r"\\.\pipe\iptv-mpv-{}{tag}", std::process::id()))
 }
 
 #[cfg(unix)]
-fn ipc_path() -> PathBuf {
-    std::env::temp_dir().join(format!("iptv-mpv-{}.sock", std::process::id()))
+fn ipc_path(tag: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("iptv-mpv-{}{tag}.sock", std::process::id()))
 }
 
 #[cfg(windows)]

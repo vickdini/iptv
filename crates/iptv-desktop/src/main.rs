@@ -160,6 +160,7 @@ async fn run(args: Args) -> Result<()> {
         fullscreen: args.fullscreen,
         maximized: !args.no_maximize,
         volume: args.volume,
+        small: false,
     };
     let (mut player, mut events) = Mpv::spawn(&mpv_path, &opts).await?;
     player.show_text("Loading channels…", 120_000).await?;
@@ -226,6 +227,8 @@ async fn run(args: Args) -> Result<()> {
         if args.no_check { 0 } else { check_total }
     );
 
+    // Events of the small picture's window, tagged with which one it was.
+    let (pip_tx, mut pip_rx) = tokio::sync::mpsc::unbounded_channel();
     // Phone remote requests, forwarded from the remote's server threads.
     let (remote_tx, mut remote_rx) = tokio::sync::mpsc::unbounded_channel();
     let mut app = App {
@@ -253,6 +256,10 @@ async fn run(args: Args) -> Result<()> {
         remote_card: false,
         volume: None,
         muted: false,
+        pip: None,
+        pip_tx,
+        pip_gen: 0,
+        mpv_path: mpv_path.clone(),
     };
     let fx = app.tuner.start();
     app.apply(fx).await?;
@@ -345,6 +352,7 @@ async fn run(args: Args) -> Result<()> {
                 }
             },
             Some(cmd) = remote_rx.recv() => app.on_remote(cmd).await?,
+            Some((generation, ev)) = pip_rx.recv() => app.on_pip_event(generation, ev).await?,
             _ = tick.tick() => {
                 if app.view_dirty {
                     app.sync_remote();
@@ -443,6 +451,24 @@ struct App {
     remote_card: bool,
     volume: Option<f64>,
     muted: bool,
+    /// The small picture: a second channel in the bottom-right corner.
+    pip: Option<Pip>,
+    /// Where the small picture's window events go (with its generation).
+    pip_tx: tokio::sync::mpsc::UnboundedSender<(u64, Event)>,
+    /// Bumped each time the small picture opens (ignores a closed one's events).
+    pip_gen: u64,
+    mpv_path: PathBuf,
+}
+
+/// The small picture's player and what it plays.
+struct Pip {
+    player: Mpv,
+    idx: usize,
+    /// Streams loaded so far (mpv playlist entry id of the current one).
+    seq: u64,
+    /// Direction of the last change, and failures in a row (to skip dead ones).
+    forward: bool,
+    fails: u32,
 }
 
 /// What a letter key does when not typing a search.
@@ -462,7 +488,11 @@ fn shortcut(c: &str) -> Option<&'static str> {
         "t" => "subtitles",
         "f" => "fullscreen",
         "m" => "mute",
-        "p" | "space" => "pause",
+        "p" => "pip",
+        "x" => "swap",
+        "[" => "pip-prev",
+        "]" => "pip-next",
+        "space" => "pause",
         "q" | "Q" => "quit",
         _ => return None,
     })
@@ -599,6 +629,134 @@ impl App {
         }
         self.sync_remote();
         self.player.show_text(&text, 3000).await
+    }
+
+    // --- small picture (picture-in-picture) ---------------------------------------
+
+    /// `p`: shows a second channel in a small window in the bottom-right
+    /// corner (the previous channel, else the next one), or closes it.
+    async fn toggle_pip(&mut self) -> Result<()> {
+        if self.pip.take().is_some() {
+            return Ok(()); // dropping it closes the window
+        }
+        let cur = self.tuner.current();
+        let idx = self
+            .tuner
+            .previous()
+            .filter(|&p| p != cur && self.tuner.is_listed(p))
+            .or_else(|| self.tuner.neighbor(cur, true));
+        let Some(idx) = idx else {
+            return self
+                .player
+                .show_text("No other channel to show", 2500)
+                .await;
+        };
+        let opts = mpv::Options {
+            fullscreen: false,
+            maximized: false,
+            volume: None,
+            small: true,
+        };
+        let (player, mut events) = Mpv::spawn(&self.mpv_path, &opts).await?;
+        self.pip_gen += 1;
+        let (generation, tx) = (self.pip_gen, self.pip_tx.clone());
+        tokio::spawn(async move {
+            while let Some(ev) = events.recv().await {
+                if tx.send((generation, ev)).is_err() {
+                    break;
+                }
+            }
+        });
+        self.pip = Some(Pip {
+            player,
+            idx,
+            seq: 0,
+            forward: true,
+            fails: 0,
+        });
+        self.play_pip(idx).await
+    }
+
+    async fn play_pip(&mut self, idx: usize) -> Result<()> {
+        let Some(pip) = self.pip.as_mut() else {
+            return Ok(());
+        };
+        let ch = &self.tuner.channels()[idx];
+        pip.idx = idx;
+        pip.seq += 1;
+        pip.player
+            .play(
+                &ch.url,
+                &format!("{}  {} — small picture", idx + 1, ch.name),
+                ch.user_agent.as_deref().unwrap_or(DEFAULT_USER_AGENT),
+                ch.referrer.as_deref().unwrap_or(""),
+            )
+            .await
+    }
+
+    /// `[` / `]`: the small picture's previous / next channel.
+    async fn step_pip(&mut self, forward: bool) -> Result<()> {
+        let Some(pip) = self.pip.as_mut() else {
+            return self
+                .player
+                .show_text("Press p for a second channel in the corner", 2500)
+                .await;
+        };
+        pip.forward = forward;
+        match self.tuner.neighbor(pip.idx, forward) {
+            Some(next) => self.play_pip(next).await,
+            None => Ok(()),
+        }
+    }
+
+    /// `x`, or a click on the small picture: the two channels change places.
+    async fn swap_pip(&mut self) -> Result<()> {
+        let Some(small) = self.pip.as_ref().map(|p| p.idx) else {
+            return self
+                .player
+                .show_text("Press p for a second channel in the corner", 2500)
+                .await;
+        };
+        let big = self.tuner.current();
+        let fx = self.tuner.tune_to(small);
+        self.apply(fx).await?;
+        self.play_pip(big).await
+    }
+
+    /// Something happened in the small picture's window.
+    async fn on_pip_event(&mut self, generation: u64, ev: Event) -> Result<()> {
+        if generation != self.pip_gen || self.pip.is_none() {
+            return Ok(());
+        }
+        match ev {
+            Event::ClientMessage(args) if args.first().map(String::as_str) == Some("iptv") => {
+                let name = args.get(1).map(String::as_str).unwrap_or_default();
+                match name {
+                    "click" | "dblclick" => self.swap_pip().await?,
+                    // Keys pressed while the small window has focus act as usual.
+                    _ => self.on_key(name, args.get(2).map(String::as_str)).await?,
+                }
+            }
+            Event::PlaybackError { entry_id, .. } => {
+                // A dead channel: quietly try the next one (not forever).
+                let pip = self.pip.as_mut().expect("checked");
+                if entry_id.is_none_or(|id| id == pip.seq) {
+                    pip.fails += 1;
+                    if pip.fails < 20 {
+                        let forward = pip.forward;
+                        self.step_pip(forward).await?;
+                    }
+                }
+            }
+            Event::FileLoaded => {
+                if let Some(pip) = self.pip.as_mut() {
+                    pip.fails = 0;
+                }
+            }
+            Event::Closed => self.pip = None, // the user closed it
+            _ => {}
+        }
+        Ok(())
     }
 
     // --- phone remote ---------------------------------------------------------
@@ -800,6 +958,10 @@ impl App {
             "regions" => return self.open_picker().await,
             "remote" => return self.open_remote_card().await,
             "fullscreen" => return self.player.command(json!(["cycle", "fullscreen"])).await,
+            "pip" => return self.toggle_pip().await,
+            "swap" => return self.swap_pip().await,
+            "pip-prev" => return self.step_pip(false).await,
+            "pip-next" => return self.step_pip(true).await,
             "mute" => return self.player.command(json!(["cycle", "mute"])).await,
             "audio" => return self.cycle_track(TrackKind::Audio).await,
             "subtitles" => return self.cycle_track(TrackKind::Sub).await,

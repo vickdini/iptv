@@ -117,8 +117,17 @@ Actions, and `SHA256SUMS.txt` lists their checksums
 
 The Android app (phones, tablets and Android TV, Android 7.0 or later) has the
 same features: the latest playlist on every launch, dead channels hidden
-automatically, channel numbers, groups and favorites. It plays in landscape,
-full screen.
+automatically, channel numbers, groups and favorites. It plays full screen
+in landscape.
+
+**Two channels at once.** Hold a phone or tablet upright and the screen splits
+in two, one channel above the other. Tap a half to hear it (a thin border marks
+it; the channel list and the phone remote follow it), swipe a half to change
+its channel. Turn it sideways again for one channel.
+
+**Picture-in-picture.** Leave the app (Home, or swipe up) while watching and
+the channel keeps playing in a small window over other apps, with buttons to
+change channel. Tap it to come back. (Android 8 or later.)
 
 | Phone / tablet | Android TV remote | Action |
 | --- | --- | --- |
@@ -249,6 +258,10 @@ TVs from 2019 on.
 | s / S | toggle favorite / zap only through favorites |
 | i | channel info |
 | f, double-click | fullscreen (Esc leaves it) |
+| p | picture-in-picture: a second channel, small, in the bottom-right corner (p again closes it) |
+| [ / ] | the small picture's previous / next channel |
+| x, click on the small picture | swap the two channels |
+| Space | pause |
 | h / ? / F1 | help |
 | q | quit |
 

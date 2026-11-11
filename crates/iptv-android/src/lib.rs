@@ -216,6 +216,25 @@ export!(
     }
 );
 
+// neighbor(idx, forward): the next (forward != 0) / previous channel after idx, or "-1".
+export!(
+    Java_io_github_vickdini_iptv_Core_neighbor,
+    |_env, idx: jint, forward: jint| app::with(|a| Ok(a
+        .neighbor(idx.max(0) as usize, forward != 0)
+        .to_string()))
+);
+
+// previousChannel(): the channel watched before the current one, or "-1".
+export!(Java_io_github_vickdini_iptv_Core_previousChannel, |_env| {
+    app::with(|a| Ok(a.previous_channel().to_string()))
+});
+
+// streamInfo(idx): {"idx","number","name","url","userAgent","referrer"} without tuning.
+export!(
+    Java_io_github_vickdini_iptv_Core_streamInfo,
+    |_env, idx: jint| app::with(|a| Ok(a.stream_info(idx.max(0) as usize)))
+);
+
 // remoteEnabled(): "true" if the phone remote was turned on before.
 export!(Java_io_github_vickdini_iptv_Core_remoteEnabled, |_env| {
     app::with(|a| Ok(a.remote_enabled().to_string()))

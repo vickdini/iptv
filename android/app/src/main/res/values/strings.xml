@@ -13,6 +13,9 @@
     <string name="regions">Countries &amp; languages</string>
     <string name="tracks">Audio language &amp; subtitles</string>
     <string name="remote">Phone remote</string>
+    <string name="pip_up">Next channel</string>
+    <string name="pip_down">Previous channel</string>
+    <string name="split_hint">Two channels: tap a half to hear it, swipe a half to change its channel. Turn the phone sideways for one.</string>
     <string name="remote_scan">Scan with your phone\'s camera (same Wi-Fi as this device),\nor open %1$s and enter the PIN %2$s.</string>
     <string name="remote_no_network">This device isn\'t connected to a network.</string>
     <string name="remote_failed">The phone remote couldn\'t start: %1$s</string>

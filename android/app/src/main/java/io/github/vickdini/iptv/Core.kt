@@ -58,6 +58,15 @@ object Core {
     /** Remembers the audio / subtitle language picked (null: stream default / subtitles off). */
     @JvmStatic external fun setTrackPrefs(audio: String?, subtitles: String?): String
 
+    /** The next ([forward] = 1) or previous channel after [idx] in the current view, or "-1". */
+    @JvmStatic external fun neighbor(idx: Int, forward: Int): String
+
+    /** The channel watched before the current one, or "-1". */
+    @JvmStatic external fun previousChannel(): String
+
+    /** How to play a channel without tuning to it: `{"idx","number","name","url","userAgent","referrer"}`. */
+    @JvmStatic external fun streamInfo(idx: Int): String
+
     /** "true" if the phone remote was turned on before (it then starts with the app). */
     @JvmStatic external fun remoteEnabled(): String
 

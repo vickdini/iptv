@@ -243,6 +243,35 @@ impl App {
         json!({ "changed": changed, "status": self.status() }).to_string()
     }
 
+    // --- second picture (split screen) ------------------------------------------
+
+    /// The next / previous channel after `from` in the current view, or -1.
+    pub fn neighbor(&self, from: usize, forward: bool) -> i64 {
+        self.tuner.neighbor(from, forward).map_or(-1, |i| i as i64)
+    }
+
+    /// The channel watched before the current one, or -1.
+    pub fn previous_channel(&self) -> i64 {
+        self.tuner.previous().map_or(-1, |i| i as i64)
+    }
+
+    /// How to play a channel without tuning to it (for the second picture):
+    /// `{"idx","number","name","url","userAgent","referrer"}`.
+    pub fn stream_info(&self, idx: usize) -> String {
+        let Some(ch) = self.tuner.channels().get(idx) else {
+            return "{}".into();
+        };
+        json!({
+            "idx": idx,
+            "number": idx + 1,
+            "name": ch.name,
+            "url": ch.url,
+            "userAgent": ch.user_agent.as_deref().unwrap_or(DEFAULT_USER_AGENT),
+            "referrer": ch.referrer,
+        })
+        .to_string()
+    }
+
     // --- phone remote -----------------------------------------------------------
 
     /// Whether the phone remote was turned on before (it then starts with the app).
