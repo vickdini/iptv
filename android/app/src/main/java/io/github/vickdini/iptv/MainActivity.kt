@@ -246,6 +246,7 @@ class MainActivity : AppCompatActivity() {
         setupCast()
         setupGestures()
         Core.init(cacheDir.absolutePath, filesDir.absolutePath)
+        Core.setLanguage(Locale.getDefault().toLanguageTag())
         LogoLoader.init(this)
         load()
     }

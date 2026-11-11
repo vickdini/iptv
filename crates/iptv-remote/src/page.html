@@ -100,12 +100,11 @@ button:active { filter: brightness(0.85); }
 <body>
 
 <section id="pin" class="pin hidden" aria-labelledby="pin-title">
-  <h1 id="pin-title">IPTV remote</h1>
-  <p>Enter the PIN shown on the TV (press <b>r</b> on a computer, or open
-     <b>Phone remote</b> in the TV app's channel list).</p>
+  <h1 id="pin-title" data-t="IPTV remote">IPTV remote</h1>
+  <p data-th="Enter the PIN shown on the TV (press <b>r</b> on a computer, or open <b>Phone remote</b> in the TV app’s channel list).">Enter the PIN shown on the TV (press <b>r</b> on a computer, or open <b>Phone remote</b> in the TV app’s channel list).</p>
   <form id="pin-form">
     <input id="pin-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" aria-label="PIN" required>
-    <button type="submit">Connect</button>
+    <button type="submit" data-t="Connect">Connect</button>
   </form>
   <div id="pin-status" class="status"></div>
 </section>
@@ -116,50 +115,50 @@ button:active { filter: brightness(0.85); }
   <div class="now">
     <img class="logo hidden" id="now-logo" alt="" referrerpolicy="no-referrer">
     <div class="num" id="now-num">–</div>
-    <div class="name" id="now-name">Connecting…</div>
+    <div class="name" id="now-name" data-t="Connecting…">Connecting…</div>
     <button class="star" id="now-star" aria-label="Favorite" aria-pressed="false">☆</button>
   </div>
 
   <div class="pad">
     <button class="big primary" data-action="up" aria-label="Channel up">CH ▲</button>
-    <button class="big" data-action="prev" aria-label="Previous channel">⟲<small>previous</small></button>
+    <button class="big" data-action="prev" aria-label="Previous channel">⟲<small data-t="previous">previous</small></button>
     <button class="big" data-volume="5" aria-label="Volume up">🔊 +</button>
     <button class="big primary" data-action="down" aria-label="Channel down">CH ▼</button>
-    <button class="big" data-action="info" aria-label="Channel info on the TV">ⓘ<small>info</small></button>
+    <button class="big" data-action="info" aria-label="Channel info on the TV">ⓘ<small data-t="info">info</small></button>
     <button class="big" data-volume="-5" aria-label="Volume down">🔉 −</button>
-    <button data-action="group-prev" aria-label="Previous group">◀ group</button>
-    <button data-action="group-next" aria-label="Next group">group ▶</button>
+    <button data-action="group-prev" aria-label="Previous group">◀ <span data-t="group">group</span></button>
+    <button data-action="group-next" aria-label="Next group"><span data-t="group">group</span> ▶</button>
     <button id="mute" aria-label="Mute" aria-pressed="false"><span id="vol">🔈 mute</span></button>
   </div>
 
   <div class="tracks" id="tracks">
     <div id="audio-box" class="hidden">
-      <label for="audio">Audio</label>
+      <label for="audio" data-t="Audio">Audio</label>
       <select id="audio"></select>
     </div>
     <div id="subs-box" class="hidden">
-      <label for="subs">Subtitles</label>
+      <label for="subs" data-t="Subtitles">Subtitles</label>
       <select id="subs"></select>
     </div>
   </div>
 
   <div class="find">
-    <input id="q" type="search" placeholder="Search channels" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Search channels">
+    <input id="q" type="search" placeholder="Search channels" data-tp="Search channels" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Search channels">
     <div class="tabs" role="group" aria-label="Show">
-      <button id="tab-all" aria-pressed="true">All</button>
+      <button id="tab-all" aria-pressed="true" data-t="All">All</button>
       <button id="tab-fav" aria-pressed="false" aria-label="Favorites only">★</button>
       <button id="tab-recent" aria-pressed="false" aria-label="Recently watched">🕘</button>
     </div>
   </div>
   <ul class="list" id="list" aria-label="Channels"></ul>
-  <button class="more hidden" id="more">Show more</button>
+  <button class="more hidden" id="more" data-t="Show more">Show more</button>
 
   <section class="tools" aria-labelledby="tools-title">
-    <h2 id="tools-title">Move favorites</h2>
-    <p>Save this TV's favorites on your phone, then open another TV's or computer's remote and add them there.</p>
+    <h2 id="tools-title" data-t="Move favorites">Move favorites</h2>
+    <p data-t="Save this TV’s favorites on your phone, then open another TV’s or computer’s remote and add them there.">Save this TV’s favorites on your phone, then open another TV’s or computer’s remote and add them there.</p>
     <div class="row2">
-      <button id="fav-save">Save to this phone</button>
-      <label class="btn" for="fav-file">Add from a file</label>
+      <button id="fav-save" data-t="Save to this phone">Save to this phone</button>
+      <label class="btn" for="fav-file" data-t="Add from a file">Add from a file</label>
     </div>
     <input id="fav-file" type="file" accept=".json,application/json" hidden>
     <div id="fav-status" class="status" role="status"></div>
@@ -168,6 +167,200 @@ button:active { filter: brightness(0.85); }
 
 <script>
 'use strict';
+/* Translations: the phone's language picks them (English otherwise). */
+var I18N = {
+"it": {
+"IPTV remote": "Telecomando IPTV",
+"Enter the PIN shown on the TV (press <b>r</b> on a computer, or open <b>Phone remote</b> in the TV app’s channel list).": "Inserisci il PIN mostrato sulla TV (premi <b>r</b> su un computer, oppure apri <b>Telecomando dal telefono</b> nell’elenco dei canali dell’app per TV).",
+"Connect": "Connetti",
+"Connecting…": "Connessione…",
+"previous": "precedente",
+"info": "info",
+"group": "gruppo",
+"Audio": "Audio",
+"Subtitles": "Sottotitoli",
+"Off": "Disattivati",
+"Search channels": "Cerca canali",
+"All": "Tutti",
+"Show more": "Mostra altri",
+"Show more ({0} left)": "Mostra altri ({0} rimasti)",
+"Move favorites": "Sposta i preferiti",
+"Save this TV’s favorites on your phone, then open another TV’s or computer’s remote and add them there.": "Salva sul telefono i preferiti di questa TV, poi apri il telecomando di un’altra TV o di un computer e aggiungili lì.",
+"Save to this phone": "Salva sul telefono",
+"Add from a file": "Aggiungi da un file",
+"mute": "muto",
+"muted": "audio disattivato",
+"That PIN didn’t work. Check the TV and try again.": "Quel PIN non funziona. Controlla la TV e riprova.",
+"Too many wrong PINs. Wait a few minutes, then try again.": "Troppi PIN errati. Aspetta qualche minuto, poi riprova.",
+"Not sent: {0}": "Non inviato: {0}",
+"Can’t reach the TV. Is it on, and is this phone on the same Wi-Fi?": "Impossibile raggiungere la TV. È accesa, e il telefono è sulla stessa rete Wi-Fi?",
+"No favorites yet. Tap ☆ to add the channel you’re watching.": "Ancora nessun preferito. Tocca ☆ per aggiungere il canale che stai guardando.",
+"Channels you watch will appear here.": "I canali che guardi appariranno qui.",
+"No channels match.": "Nessun canale corrisponde.",
+"Saved “IPTV favorites.json” (look in your downloads).": "Salvato “IPTV favorites.json” (guarda nei download).",
+"Couldn’t save: {0}": "Impossibile salvare: {0}",
+"That file couldn’t be used.": "Quel file non si può usare.",
+"Favorites sent to the TV: {0}.": "Preferiti inviati alla TV: {0}.",
+"Favorites sent to the TV: {0} ({1} not in its channel list yet).": "Preferiti inviati alla TV: {0} ({1} non ancora nel suo elenco).",
+"Couldn’t send: {0}": "Impossibile inviare: {0}"
+},
+"es": {
+"IPTV remote": "Mando de IPTV",
+"Enter the PIN shown on the TV (press <b>r</b> on a computer, or open <b>Phone remote</b> in the TV app’s channel list).": "Introduce el PIN que aparece en la TV (pulsa <b>r</b> en un ordenador, o abre <b>Mando desde el móvil</b> en la lista de canales de la app de TV).",
+"Connect": "Conectar",
+"Connecting…": "Conectando…",
+"previous": "anterior",
+"info": "info",
+"group": "grupo",
+"Audio": "Audio",
+"Subtitles": "Subtítulos",
+"Off": "Desactivados",
+"Search channels": "Buscar canales",
+"All": "Todos",
+"Show more": "Mostrar más",
+"Show more ({0} left)": "Mostrar más (quedan {0})",
+"Move favorites": "Mover favoritos",
+"Save this TV’s favorites on your phone, then open another TV’s or computer’s remote and add them there.": "Guarda en el móvil los favoritos de esta TV y luego abre el mando de otra TV u ordenador y añádelos allí.",
+"Save to this phone": "Guardar en el móvil",
+"Add from a file": "Añadir desde un archivo",
+"mute": "silencio",
+"muted": "silenciado",
+"That PIN didn’t work. Check the TV and try again.": "Ese PIN no funciona. Comprueba la TV e inténtalo de nuevo.",
+"Too many wrong PINs. Wait a few minutes, then try again.": "Demasiados PIN incorrectos. Espera unos minutos e inténtalo de nuevo.",
+"Not sent: {0}": "No enviado: {0}",
+"Can’t reach the TV. Is it on, and is this phone on the same Wi-Fi?": "No se puede contactar con la TV. ¿Está encendida y el móvil en la misma Wi-Fi?",
+"No favorites yet. Tap ☆ to add the channel you’re watching.": "Aún no hay favoritos. Toca ☆ para añadir el canal que estás viendo.",
+"Channels you watch will appear here.": "Los canales que veas aparecerán aquí.",
+"No channels match.": "Ningún canal coincide.",
+"Saved “IPTV favorites.json” (look in your downloads).": "Guardado “IPTV favorites.json” (búscalo en tus descargas).",
+"Couldn’t save: {0}": "No se pudo guardar: {0}",
+"That file couldn’t be used.": "No se puede usar ese archivo.",
+"Favorites sent to the TV: {0}.": "Favoritos enviados a la TV: {0}.",
+"Favorites sent to the TV: {0} ({1} not in its channel list yet).": "Favoritos enviados a la TV: {0} ({1} aún no están en su lista).",
+"Couldn’t send: {0}": "No se pudo enviar: {0}"
+},
+"fr": {
+"IPTV remote": "Télécommande IPTV",
+"Enter the PIN shown on the TV (press <b>r</b> on a computer, or open <b>Phone remote</b> in the TV app’s channel list).": "Saisissez le code affiché sur la TV (appuyez sur <b>r</b> sur un ordinateur, ou ouvrez <b>Télécommande sur téléphone</b> dans la liste des chaînes de l’app TV).",
+"Connect": "Se connecter",
+"Connecting…": "Connexion…",
+"previous": "précédente",
+"info": "infos",
+"group": "groupe",
+"Audio": "Audio",
+"Subtitles": "Sous-titres",
+"Off": "Désactivés",
+"Search channels": "Rechercher une chaîne",
+"All": "Toutes",
+"Show more": "Afficher plus",
+"Show more ({0} left)": "Afficher plus ({0} restantes)",
+"Move favorites": "Déplacer les favoris",
+"Save this TV’s favorites on your phone, then open another TV’s or computer’s remote and add them there.": "Enregistrez les favoris de cette TV sur votre téléphone, puis ouvrez la télécommande d’une autre TV ou d’un ordinateur et ajoutez-les.",
+"Save to this phone": "Enregistrer sur le téléphone",
+"Add from a file": "Ajouter depuis un fichier",
+"mute": "muet",
+"muted": "son coupé",
+"That PIN didn’t work. Check the TV and try again.": "Ce code ne fonctionne pas. Vérifiez la TV et réessayez.",
+"Too many wrong PINs. Wait a few minutes, then try again.": "Trop de codes erronés. Attendez quelques minutes, puis réessayez.",
+"Not sent: {0}": "Non envoyé : {0}",
+"Can’t reach the TV. Is it on, and is this phone on the same Wi-Fi?": "Impossible de joindre la TV. Est-elle allumée, et ce téléphone est-il sur le même Wi-Fi ?",
+"No favorites yet. Tap ☆ to add the channel you’re watching.": "Pas encore de favoris. Touchez ☆ pour ajouter la chaîne que vous regardez.",
+"Channels you watch will appear here.": "Les chaînes que vous regardez apparaîtront ici.",
+"No channels match.": "Aucune chaîne ne correspond.",
+"Saved “IPTV favorites.json” (look in your downloads).": "“IPTV favorites.json” enregistré (regardez dans vos téléchargements).",
+"Couldn’t save: {0}": "Enregistrement impossible : {0}",
+"That file couldn’t be used.": "Ce fichier ne peut pas être utilisé.",
+"Favorites sent to the TV: {0}.": "Favoris envoyés à la TV : {0}.",
+"Favorites sent to the TV: {0} ({1} not in its channel list yet).": "Favoris envoyés à la TV : {0} ({1} pas encore dans sa liste).",
+"Couldn’t send: {0}": "Envoi impossible : {0}"
+},
+"de": {
+"IPTV remote": "IPTV-Fernbedienung",
+"Enter the PIN shown on the TV (press <b>r</b> on a computer, or open <b>Phone remote</b> in the TV app’s channel list).": "Gib die auf dem Fernseher angezeigte PIN ein (am Computer <b>r</b> drücken oder in der Senderliste der TV-App <b>Handy-Fernbedienung</b> öffnen).",
+"Connect": "Verbinden",
+"Connecting…": "Verbinden…",
+"previous": "vorheriger",
+"info": "Info",
+"group": "Gruppe",
+"Audio": "Audio",
+"Subtitles": "Untertitel",
+"Off": "Aus",
+"Search channels": "Sender suchen",
+"All": "Alle",
+"Show more": "Mehr anzeigen",
+"Show more ({0} left)": "Mehr anzeigen (noch {0})",
+"Move favorites": "Favoriten übertragen",
+"Save this TV’s favorites on your phone, then open another TV’s or computer’s remote and add them there.": "Speichere die Favoriten dieses Fernsehers auf dem Handy, öffne dann die Fernbedienung eines anderen Fernsehers oder Computers und füge sie dort hinzu.",
+"Save to this phone": "Auf dem Handy speichern",
+"Add from a file": "Aus Datei hinzufügen",
+"mute": "stumm",
+"muted": "stumm",
+"That PIN didn’t work. Check the TV and try again.": "Diese PIN funktioniert nicht. Prüfe den Fernseher und versuche es erneut.",
+"Too many wrong PINs. Wait a few minutes, then try again.": "Zu viele falsche PINs. Warte ein paar Minuten und versuche es dann erneut.",
+"Not sent: {0}": "Nicht gesendet: {0}",
+"Can’t reach the TV. Is it on, and is this phone on the same Wi-Fi?": "Der Fernseher ist nicht erreichbar. Ist er an und ist das Handy im selben WLAN?",
+"No favorites yet. Tap ☆ to add the channel you’re watching.": "Noch keine Favoriten. Tippe auf ☆, um den Sender hinzuzufügen, den du gerade siehst.",
+"Channels you watch will appear here.": "Sender, die du ansiehst, erscheinen hier.",
+"No channels match.": "Kein Sender passt.",
+"Saved “IPTV favorites.json” (look in your downloads).": "„IPTV favorites.json“ gespeichert (in deinen Downloads).",
+"Couldn’t save: {0}": "Speichern nicht möglich: {0}",
+"That file couldn’t be used.": "Diese Datei kann nicht verwendet werden.",
+"Favorites sent to the TV: {0}.": "An den Fernseher gesendete Favoriten: {0}.",
+"Favorites sent to the TV: {0} ({1} not in its channel list yet).": "An den Fernseher gesendete Favoriten: {0} ({1} noch nicht in seiner Senderliste).",
+"Couldn’t send: {0}": "Senden nicht möglich: {0}"
+},
+"pt": {
+"IPTV remote": "Comando IPTV",
+"Enter the PIN shown on the TV (press <b>r</b> on a computer, or open <b>Phone remote</b> in the TV app’s channel list).": "Introduza o PIN mostrado na TV (prima <b>r</b> num computador, ou abra <b>Comando no telemóvel</b> na lista de canais da app de TV).",
+"Connect": "Ligar",
+"Connecting…": "A ligar…",
+"previous": "anterior",
+"info": "info",
+"group": "grupo",
+"Audio": "Áudio",
+"Subtitles": "Legendas",
+"Off": "Desligadas",
+"Search channels": "Pesquisar canais",
+"All": "Todos",
+"Show more": "Mostrar mais",
+"Show more ({0} left)": "Mostrar mais (faltam {0})",
+"Move favorites": "Mover favoritos",
+"Save this TV’s favorites on your phone, then open another TV’s or computer’s remote and add them there.": "Guarde no telemóvel os favoritos desta TV e depois abra o comando de outra TV ou computador e adicione-os lá.",
+"Save to this phone": "Guardar no telemóvel",
+"Add from a file": "Adicionar de um ficheiro",
+"mute": "sem som",
+"muted": "sem som",
+"That PIN didn’t work. Check the TV and try again.": "Esse PIN não funciona. Verifique a TV e tente de novo.",
+"Too many wrong PINs. Wait a few minutes, then try again.": "Demasiados PIN errados. Espere alguns minutos e tente de novo.",
+"Not sent: {0}": "Não enviado: {0}",
+"Can’t reach the TV. Is it on, and is this phone on the same Wi-Fi?": "Não é possível contactar a TV. Está ligada e o telemóvel está na mesma Wi-Fi?",
+"No favorites yet. Tap ☆ to add the channel you’re watching.": "Ainda não há favoritos. Toque em ☆ para adicionar o canal que está a ver.",
+"Channels you watch will appear here.": "Os canais que vir vão aparecer aqui.",
+"No channels match.": "Nenhum canal corresponde.",
+"Saved “IPTV favorites.json” (look in your downloads).": "“IPTV favorites.json” guardado (veja nas transferências).",
+"Couldn’t save: {0}": "Não foi possível guardar: {0}",
+"That file couldn’t be used.": "Esse ficheiro não pode ser usado.",
+"Favorites sent to the TV: {0}.": "Favoritos enviados para a TV: {0}.",
+"Favorites sent to the TV: {0} ({1} not in its channel list yet).": "Favoritos enviados para a TV: {0} ({1} ainda não estão na lista).",
+"Couldn’t send: {0}": "Não foi possível enviar: {0}"
+}
+};
+var LANG = String(navigator.language || 'en').slice(0, 2).toLowerCase();
+function T(en) { var t = I18N[LANG]; return (t && t[en]) || en; }
+function TF(en) {
+  var s = T(en);
+  for (var i = 1; i < arguments.length; i++) s = s.split('{' + (i - 1) + '}').join(String(arguments[i]));
+  return s;
+}
+(function translatePage() {
+  if (!I18N[LANG]) return;
+  document.documentElement.lang = LANG;
+  document.title = T('IPTV remote');
+  Array.prototype.forEach.call(document.querySelectorAll('[data-t]'), function (el) { el.textContent = T(el.dataset.t); });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-th]'), function (el) { el.innerHTML = T(el.dataset.th); });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-tp]'), function (el) { el.placeholder = T(el.dataset.tp); });
+})();
+
 var KEY_STORE = 'iptv-remote-key';
 var PAGE = 150;
 var key = '';
@@ -190,15 +383,15 @@ function api(path, body, raw) {
     opts.body = raw ? body : JSON.stringify(body);
   }
   return fetch(path, opts).then(function (r) {
-    if (r.status === 401) { askPin('That PIN didn’t work. Check the TV and try again.'); throw new Error('pin'); }
-    if (r.status === 429) { askPin('Too many wrong PINs. Wait a few minutes, then try again.'); throw new Error('locked'); }
+    if (r.status === 401) { askPin(T('That PIN didn’t work. Check the TV and try again.')); throw new Error('pin'); }
+    if (r.status === 429) { askPin(T('Too many wrong PINs. Wait a few minutes, then try again.')); throw new Error('locked'); }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
   });
 }
 
 function send(cmd) {
-  return api('/api/cmd', cmd).catch(function (e) { if (e.message !== 'pin') status('Not sent: ' + e.message, true); });
+  return api('/api/cmd', cmd).catch(function (e) { if (e.message !== 'pin') status(TF('Not sent: {0}', e.message), true); });
 }
 
 function status(text, error) {
@@ -241,7 +434,7 @@ function poll() {
     setTimeout(poll, 0);
   }).catch(function (e) {
     if (e.message === 'pin' || e.message === 'locked') return;
-    status('Can’t reach the TV. Is it on, and is this phone on the same Wi-Fi?', true);
+    status(T('Can’t reach the TV. Is it on, and is this phone on the same Wi-Fi?'), true);
     setTimeout(poll, 3000);
   });
 }
@@ -257,10 +450,10 @@ function render() {
   star.textContent = c.fav ? '★' : '☆';
   star.classList.toggle('on', c.fav);
   star.setAttribute('aria-pressed', String(c.fav));
-  $('vol').textContent = state.muted ? '🔇 muted' : '🔈 ' + (state.volume == null ? 'mute' : state.volume + '%');
+  $('vol').textContent = state.muted ? '🔇 ' + T('muted') : '🔈 ' + (state.volume == null ? T('mute') : state.volume + '%');
   $('mute').setAttribute('aria-pressed', String(state.muted));
   fillTracks('audio', state.audio, null);
-  fillTracks('subs', state.subs, 'Off');
+  fillTracks('subs', state.subs, T('Off'));
 }
 
 function fillTracks(id, tracks, offLabel) {
@@ -291,8 +484,8 @@ function refreshList(resetScroll) {
     shown = 0;
     $('list').innerHTML = '';
     if (!items.length) {
-      var empty = show === 'favs' ? 'No favorites yet. Tap ☆ to add the channel you’re watching.'
-        : show === 'recent' ? 'Channels you watch will appear here.' : 'No channels match.';
+      var empty = T(show === 'favs' ? 'No favorites yet. Tap ☆ to add the channel you’re watching.'
+        : show === 'recent' ? 'Channels you watch will appear here.' : 'No channels match.');
       $('list').innerHTML = '<li class="empty">' + empty + '</li>';
     }
     showMore();
@@ -320,7 +513,7 @@ function showMore() {
   list.appendChild(frag);
   shown = Math.min(items.length, shown + PAGE);
   $('more').classList.toggle('hidden', shown >= items.length);
-  $('more').textContent = 'Show more (' + (items.length - shown) + ' left)';
+  $('more').textContent = TF('Show more ({0} left)', items.length - shown);
 }
 
 // While the TV is still checking channels the count changes every second:
@@ -385,8 +578,8 @@ $('fav-save').addEventListener('click', function () {
     document.body.appendChild(a);
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-    $('fav-status').textContent = 'Saved \u201cIPTV favorites.json\u201d (look in your downloads).';
-  }).catch(function (e) { $('fav-status').textContent = 'Couldn\u2019t save: ' + e.message; });
+    $('fav-status').textContent = T('Saved \u201cIPTV favorites.json\u201d (look in your downloads).');
+  }).catch(function (e) { $('fav-status').textContent = TF('Couldn\u2019t save: {0}', e.message); });
 });
 
 $('fav-file').addEventListener('change', function () {
@@ -402,12 +595,13 @@ $('fav-file').addEventListener('change', function () {
     }).then(function (r) {
       return r.json().then(function (j) { return { ok: r.ok, j: j }; });
     }).then(function (res) {
-      if (!res.ok) { $('fav-status').textContent = res.j.error || 'That file couldn\u2019t be used.'; return; }
+      if (!res.ok) { $('fav-status').textContent = T('That file couldn\u2019t be used.'); return; }
       var n = res.j.count;
-      $('fav-status').textContent = 'Sent ' + n + ' favorite' + (n === 1 ? '' : 's') + ' to the TV' +
-        (res.j.missing ? ' (' + res.j.missing + ' not in its channel list yet).' : '.');
+      $('fav-status').textContent = res.j.missing
+        ? TF('Favorites sent to the TV: {0} ({1} not in its channel list yet).', n, res.j.missing)
+        : TF('Favorites sent to the TV: {0}.', n);
       setTimeout(function () { refreshList(false); }, 800);
-    }).catch(function (e) { $('fav-status').textContent = 'Couldn\u2019t send: ' + e.message; });
+    }).catch(function (e) { $('fav-status').textContent = TF('Couldn\u2019t send: {0}', e.message); });
   };
   reader.readAsText(file);
 });

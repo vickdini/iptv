@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="loading">Sender werden geladen…</string>
+    <string name="load_failed">Die Senderliste konnte nicht geladen werden.\n%1$s\n\nPrüfe deine Internetverbindung und tippe dann hier, um es erneut zu versuchen.</string>
+    <string name="search_hint">Sender suchen…</string>
+    <string name="panel_hint">Tippen zum Ansehen · lange drücken für Favoriten</string>
+    <string name="group_prev">Vorherige Gruppe</string>
+    <string name="group_next">Nächste Gruppe</string>
+    <string name="favorites_only">Nur Favoriten</string>
+    <string name="close">Schließen</string>
+    <string name="exit">IPTV beenden</string>
+    <string name="regions">Länder und Sprachen</string>
+    <string name="tracks">Audiosprache und Untertitel</string>
+    <string name="remote">Handy-Fernbedienung</string>
+    <string name="recent">Zuletzt gesehen</string>
+    <string name="favorites_move">Favoriten übertragen</string>
+    <string name="favorites_export">Favoriten in einer Datei speichern</string>
+    <string name="favorites_import">Favoriten aus einer Datei hinzufügen</string>
+    <string name="favorites_saved">%1$d Favoriten gespeichert. Auf einem anderen Gerät: ★ lange drücken oder die Handy-Fernbedienung verwenden.</string>
+    <string name="favorites_none">Noch keine Favoriten zum Speichern (einen Sender lange drücken, um ihn hinzuzufügen).</string>
+    <string name="favorites_no_picker">Dieses Gerät kann keine Dateien öffnen: Übertrage die Favoriten mit der Handy-Fernbedienung.</string>
+    <string name="favorites_failed">Diese Datei kann nicht verwendet werden: %1$s</string>
+    <string name="pip_up">Nächster Sender</string>
+    <string name="pip_down">Vorheriger Sender</string>
+    <string name="split_hint">Zwei Sender: Tippe auf eine Hälfte, um sie zu hören, wische über eine Hälfte, um ihren Sender zu wechseln. Für einen Sender das Handy quer halten.</string>
+    <string name="remote_scan">Mit der Handykamera scannen (gleiches WLAN wie dieses Gerät)\noder %1$s öffnen und die PIN %2$s eingeben.</string>
+    <string name="remote_no_network">Dieses Gerät ist mit keinem Netzwerk verbunden.</string>
+    <string name="remote_failed">Die Handy-Fernbedienung konnte nicht starten: %1$s</string>
+    <string name="tracks_audio">Audiosprache</string>
+    <string name="tracks_subtitles">Untertitel</string>
+    <string name="tracks_off">Aus</string>
+    <string name="tracks_none">Dieser Sender hat nur eine Audiosprache und keine Untertitel.</string>
+    <string name="tracks_hint_audio">%d Audiosprachen</string>
+    <string name="tracks_hint_subs">%d Untertitel</string>
+    <string name="tracks_hint">Dieser Sender hat %1$s.\nÄndere sie mit der Untertitel-Schaltfläche in der Senderliste.</string>
+    <string name="tracks_hint_tv">Dieser Sender hat %1$s.\nÄndere sie mit der Taste Audio / Untertitel oder der Schaltfläche in der Senderliste.</string>
+    <string name="regions_countries">Länder</string>
+    <string name="regions_languages">Sprachen</string>
+    <string name="regions_show_all">Alle Sender zeigen</string>
+    <string name="regions_clear_all">Alles löschen</string>
+    <string name="regions_none">Länder- und Sprachinformationen sind für diese Senderliste nicht verfügbar.</string>
+    <string name="regions_hint">Zeigt Sender aus einem der gewählten Länder oder in einer der gewählten Sprachen.</string>
+    <string name="update_ready">IPTV %1$s ist verfügbar — das Update wird installiert…</string>
+    <string name="casting">Wird auf deinem Fernseher abgespielt (Chromecast)</string>
+</resources>

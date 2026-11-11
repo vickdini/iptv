@@ -58,6 +58,9 @@ object Core {
     /** Remembers the audio / subtitle language picked (null: stream default / subtitles off). */
     @JvmStatic external fun setTrackPrefs(audio: String?, subtitles: String?): String
 
+    /** The language of the core's messages (the device's: "it", "pt-BR"...). */
+    @JvmStatic external fun setLanguage(code: String): String
+
     /** The favorites as a file's text, to add them on another device. */
     @JvmStatic external fun exportFavorites(): String
 

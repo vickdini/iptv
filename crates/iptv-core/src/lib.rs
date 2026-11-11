@@ -9,6 +9,7 @@
 
 pub mod browser;
 pub mod favorites;
+pub mod i18n;
 pub mod lang;
 pub mod m3u;
 pub mod tuner;

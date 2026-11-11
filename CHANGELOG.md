@@ -6,6 +6,19 @@ What's new in each version of IPTV. Downloads for every version are on the
 When releasing, add a section for the new version at the top. The release
 workflow uses that section as the release notes.
 
+## [Unreleased]
+
+### Added
+- **Languages:** IPTV is now in Italian, Spanish, French, German and
+  Portuguese as well as English. Every app follows the device's language,
+  and the phone remote follows the phone's.
+- **Quick start guide in six languages:** English, Italian, Spanish, French,
+  German and Portuguese editions, linked from the README.
+
+### Fixed
+- **Computers:** channel logos no longer stay on screen over the phone
+  remote's QR code.
+
 ## [0.11.0] - 2026-11-11
 
 ### Added

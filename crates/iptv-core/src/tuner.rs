@@ -11,7 +11,10 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 
-use crate::m3u::Channel;
+use crate::{
+    i18n::{t, tf},
+    m3u::Channel,
+};
 
 /// How long typed digits wait before tuning, in milliseconds.
 pub const DIGIT_TIMEOUT_MS: u64 = 2000;
@@ -277,7 +280,7 @@ impl Tuner {
                 self.previous = previous.filter(|&p| p != idx);
                 fx
             }
-            None => vec![self.osd("No working channels in this view")],
+            None => vec![self.osd(t("No working channels in this view"))],
         }
     }
 
@@ -308,7 +311,7 @@ impl Tuner {
                 self.forward = action == Action::ChannelUp;
                 match self.step(self.forward) {
                     Some(idx) => self.tune(idx),
-                    None => vec![self.osd("No channels in this view")],
+                    None => vec![self.osd(t("No channels in this view"))],
                 }
             }
             Action::Digit(d) => {
@@ -338,7 +341,7 @@ impl Tuner {
             Action::DigitTimeout => self.confirm_digits(),
             Action::Previous => match self.previous {
                 Some(p) if p < self.channels.len() => self.tune(p),
-                _ => vec![self.osd("No previous channel")],
+                _ => vec![self.osd(t("No previous channel"))],
             },
             Action::Info => vec![self.info()],
             Action::NextGroup | Action::PrevGroup => self.cycle_group(action == Action::NextGroup),
@@ -350,7 +353,7 @@ impl Tuner {
                 }
                 if self.favorites.is_empty() {
                     return vec![
-                        self.osd("No favorites yet — press 's' to add the current channel")
+                        self.osd(t("No favorites yet — press 's' to add the current channel"))
                     ];
                 }
                 self.filter = Filter::Favorites;
@@ -362,13 +365,13 @@ impl Tuner {
                     return vec![self.osd(&self.view_title())];
                 }
                 if !(0..self.channels.len()).any(|i| self.matches_with(i, Filter::Recent)) {
-                    return vec![self.osd("No recently watched channels yet")];
+                    return vec![self.osd(t("No recently watched channels yet"))];
                 }
                 self.filter = Filter::Recent;
                 self.enter_filter(self.view_title())
             }
             Action::Help => vec![Effect::Osd {
-                text: HELP.to_string(),
+                text: crate::i18n::help().to_string(),
                 ms: 8000,
             }],
         }
@@ -389,9 +392,9 @@ impl Tuner {
         };
         let url = ch.url.clone();
         let msg = if self.favorites.remove(&url) {
-            format!("Removed from favorites: {}", ch.name)
+            tf("Removed from favorites: {0}", &[&ch.name])
         } else {
-            let msg = format!("★ Added to favorites: {}", ch.name);
+            let msg = tf("★ Added to favorites: {0}", &[&ch.name]);
             self.favorites.insert(url);
             msg
         };
@@ -424,14 +427,15 @@ impl Tuner {
         self.favorites.extend(urls);
         let added = self.favorites.len() - before;
         let mut msg = match added {
-            0 => "No new favorites: they were all here already".to_string(),
-            1 => "★ Added 1 favorite".to_string(),
-            n => format!("★ Added {n} favorites"),
+            0 => t("No new favorites: they were all here already").to_string(),
+            1 => t("★ Added 1 favorite").to_string(),
+            n => tf("★ Added {0} favorites", &[&n]),
         };
         if missing > 0 {
-            msg.push_str(&format!(
-                "
-({missing} not in this channel list; kept for when they are)"
+            msg.push('\n');
+            msg.push_str(&tf(
+                "({0} not in this channel list; kept for when they are)",
+                &[&missing],
             ));
         }
         vec![self.osd(&msg), Effect::Save]
@@ -478,8 +482,8 @@ impl Tuner {
         self.region_countries = countries.into_iter().collect();
         self.region_languages = languages.into_iter().collect();
         let title = match self.region_label() {
-            Some(label) => format!("Showing: {label}"),
-            None => "All countries and languages".to_string(),
+            Some(label) => tf("Showing: {0}", &[&label]),
+            None => t("All countries and languages").to_string(),
         };
         let mut fx = self.enter_filter(title);
         fx.push(Effect::Save);
@@ -629,7 +633,9 @@ impl Tuner {
     /// e.g. "All channels (7012)", "News (630)", "Favorites (3)", counting
     /// only channels not known to be dead.
     pub fn view_title(&self) -> String {
-        let name = self.filter_name().unwrap_or_else(|| "All channels".into());
+        let name = self
+            .filter_name()
+            .unwrap_or_else(|| t("All channels").into());
         let count = (0..self.channels.len())
             .filter(|&i| self.matches(i))
             .count();
@@ -689,7 +695,7 @@ impl Tuner {
         let idx = if self.dead[idx] {
             match self.step_from(idx, self.forward) {
                 Some(i) => i,
-                None => return vec![self.osd("No working channels in this view")],
+                None => return vec![self.osd(t("No working channels in this view"))],
             }
         } else {
             idx
@@ -721,7 +727,7 @@ impl Tuner {
         self.forward = true;
         match typed.parse::<usize>() {
             Ok(n) if (1..=self.channels.len()).contains(&n) => self.tune(n - 1),
-            _ => vec![self.osd(&format!("No channel {typed}"))],
+            _ => vec![self.osd(&tf("No channel {0}", &[&typed]))],
         }
     }
 
@@ -729,9 +735,9 @@ impl Tuner {
         match self.filter {
             Filter::All => None,
             Filter::Group(g) => Some(self.groups[g].clone()),
-            Filter::Favorites => Some("Favorites".into()),
-            Filter::Recent => Some("Recently watched".into()),
-            Filter::Search => Some(format!("Search: {}", self.search_text)),
+            Filter::Favorites => Some(t("Favorites").into()),
+            Filter::Recent => Some(t("Recently watched").into()),
+            Filter::Search => Some(tf("Search: {0}", &[&self.search_text])),
         }
     }
 
@@ -760,7 +766,10 @@ impl Tuner {
             self.channels.len()
         );
         if !ch.groups.is_empty() {
-            text.push_str(&format!("\nGroups: {}", ch.groups.join(", ")));
+            text.push_str(&format!(
+                "\n{}",
+                tf("Groups: {0}", &[&ch.groups.join(", ")])
+            ));
         }
         if let Some(id) = &ch.tvg_id {
             text.push_str(&format!("\nID: {id}"));
@@ -778,10 +787,10 @@ impl Tuner {
         }
         text.push_str(&format!(
             "\nView: {}",
-            self.filter_name().unwrap_or("All channels".into())
+            self.filter_name().unwrap_or(t("All channels").into())
         ));
         if let Some(r) = self.region_label() {
-            text.push_str(&format!("\nShowing: {r}"));
+            text.push_str(&format!("\n{}", tf("Showing: {0}", &[&r])));
         }
         text.push_str(&format!("\n{}", ch.url));
         Effect::Osd { text, ms: 6000 }
@@ -842,23 +851,6 @@ impl Tuner {
         }
     }
 }
-
-const HELP: &str = "\
-Up / Down / PgUp / PgDn / wheel   change channel
-0-9 then wait or Enter             go to channel number
-Backspace                          previous channel
-Left / Right                       volume      m  mute
-i  info      l / Tab  channel panel (wheel, click, Esc)
-/ or Ctrl+F  search channels by name
-c            choose countries and languages
-a  audio language      t  subtitles   (when offered)
-r            phone remote (QR code to scan)
-E / I        export / import favorites (Downloads folder)
-g / G        next / previous group
-s  toggle favorite    S  favorites only
-p  small picture: a second channel in the corner
-[ ]  its channel      x  swap the two channels
-f  fullscreen         space  pause      q  quit";
 
 #[cfg(test)]
 mod tests {

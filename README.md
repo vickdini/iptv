@@ -20,8 +20,14 @@ which roughly three quarters work at any given time).
 Runs on Windows, Linux, macOS, Android (phones, tablets, Android TV, Google
 TV, Fire TV) and Samsung smart TVs, and can cast to Chromecast.
 
-A printable **[quick start guide](docs/quick-start/IPTV-Quick-Start.pdf)** (PDF)
-explains installing and using IPTV on every platform.
+A printable **quick start guide** (PDF) explains installing and using IPTV
+on every platform:
+[English](docs/quick-start/IPTV-Quick-Start.pdf) ·
+[Italiano](docs/quick-start/IPTV-Quick-Start-it.pdf) ·
+[Español](docs/quick-start/IPTV-Quick-Start-es.pdf) ·
+[Français](docs/quick-start/IPTV-Quick-Start-fr.pdf) ·
+[Deutsch](docs/quick-start/IPTV-Quick-Start-de.pdf) ·
+[Português](docs/quick-start/IPTV-Quick-Start-pt.pdf).
 
 | Device | How to get it |
 | --- | --- |
@@ -135,7 +141,7 @@ change channel. Tap it to come back. (Android 8 or later.)
 | tap | OK | open / close the channel list |
 | double-tap | Backspace, Last channel | previous channel |
 | long-press | Info | channel info |
-| | Left / Right | previous / next group |
+| | Left / Right | recently watched, then the groups |
 | | 0–9 | go to channel number (OK to confirm) |
 | | Fast-forward / Rewind, Next / Previous | next / previous channel |
 | | Play/Pause, Menu | open / close the channel list |
@@ -144,15 +150,18 @@ change channel. Tap it to come back. (Android 8 or later.)
 The channel list has a **Search channels…** box at the top (phone keyboard,
 or the TV's on-screen keyboard: Up from the first channel reaches it).
 
-The 🌐 button in the channel list header chooses countries and languages.
-On channels that broadcast several audio languages or subtitles, a subtitles
-button appears there too (remotes with an Audio or CC key can use those).
-On phones and tablets, the ⏻ button in the channel list header exits the app
-(it also stops casting).
+The buttons in the channel list header:
 
-In the channel list: tap (or OK) watches a channel, long-press toggles a
-favorite, the ◀ ▶ ★ buttons switch group / favorites only, and the 🕘 button
-shows the channels you watched recently.
+* ◀ ▶ previous / next group, 🕘 recently watched channels, ★ favorites only
+  (long-press ★ to save your favorites to a file or add them from one);
+* 🌐 countries and languages;
+* subtitles: audio language and subtitles (only on channels that broadcast
+  several; remotes with an Audio or CC key can use those);
+* 📱 phone remote (see below), the Cast button (Chromecast), and on phones and
+  tablets ⏻, which exits the app (it also stops casting).
+
+In the channel list, each channel shows its logo: tap (or OK) watches it,
+long-press toggles it as a favorite.
 
 **[Download the latest APK](https://github.com/vickdini/iptv/releases/latest)**
 (`IPTV-<version>.apk` under *Assets*) on the phone or TV and open it. Android
@@ -237,7 +246,7 @@ TVs from 2019 on.
 | Up / Down, CH + / CH − | next / previous channel |
 | 0–9 | go to channel number |
 | OK | channel list (in the list: watch the selected channel) |
-| Left / Right | previous / next group |
+| Left / Right | recently watched, then the groups |
 | PRE-CH | previous channel |
 | INFO | channel info |
 | Red / Green | favorite / favorites only |
@@ -318,6 +327,15 @@ logo (from the playlist; downloaded once and kept). The last 20 channels you
 watched are a view of their own, most recent first: **g** on a computer, Right
 in the channel list on TV remotes (it comes right after *All channels*), the
 🕘 button on Android and in the phone remote.
+
+### Languages
+
+IPTV speaks English, Italian, Spanish, French, German and Portuguese, and
+follows the device's language: the system language on computers (set
+`IPTV_LANG=it` to choose another), the phone's or TV's language on Android
+and Samsung TVs, and the phone's browser language in the phone remote.
+Channel names, groups and country / language names come from the playlist
+and stay as they are there.
 
 ### Moving favorites to another device
 
@@ -483,8 +501,11 @@ cargo test
 ```
 
 Other options: `--fullscreen`, `--no-maximize` (normal-sized window),
-`--volume <0-100>`, `--no-check` (don't check or hide channels). Set
-`IPTV_DEBUG=1` to log key presses and skipped channels.
+`--volume <0-100>`, `--no-check` (don't check or hide channels),
+`--no-update` (don't look for new versions), `--no-remote` (don't start the
+phone remote). Set `IPTV_DEBUG=1` to log key presses and skipped channels,
+and `IPTV_LANG=it` (or `es`, `fr`, `de`, `pt`, `en`) to use another language
+than the system's.
 
 Release builds on Windows are GUI applications: no console window opens, and
 errors are shown in a message box. Run from a terminal, they still print
@@ -591,6 +612,33 @@ automatically before the app. `IPTV_VERSION=0.0.1 ./gradlew assembleRelease`
 builds an older-looking copy, handy for testing the automatic update. `android/make-icons.py` regenerates the
 launcher icons and the Android TV banner.
 
+### Translations
+
+Each part of IPTV keeps its texts with its code; English is the reference
+and the fallback. To improve a translation or add a language, edit:
+
+| Where | What |
+| --- | --- |
+| `crates/iptv-core/src/i18n.rs` | messages of the shared core and the desktop app (one table, English → it, es, fr, de, pt), and the desktop help |
+| `android/app/src/main/res/values-*/strings.xml` | the Android app (standard Android resources) |
+| `tizen/app/js/i18n.js` | the Samsung TV app |
+| `crates/iptv-remote/src/page.html` | the phone remote page (the `I18N` table) |
+| `docs/quick-start/IPTV-Quick-Start-*.tex` | the quick start guides |
+
+`cargo test` checks that every core / desktop message has all its
+translations, with the same `{0}` placeholders and line breaks. A new language
+also needs a `Lang` entry in `i18n.rs`.
+
+### Building the quick start guides
+
+The guides are LaTeX documents sharing their layout (`docs/quick-start/preamble.tex`).
+With a LaTeX system such as MiKTeX or TeX Live:
+
+```sh
+cd docs/quick-start
+pdflatex IPTV-Quick-Start-it.tex   # twice, for the table of contents
+```
+
 ## Architecture
 
 ```
@@ -598,23 +646,35 @@ crates/
   iptv-core/       platform-independent logic, no I/O (reused by every front-end)
     m3u.rs         extended-M3U parser (tvg-*, group-title, user-agent/referrer)
     tuner.rs       TV state machine: Action (remote button) -> Vec<Effect>;
-                   channel numbers, zapping, groups, favorites, dead channels
+                   channel numbers, zapping, groups, favorites, recently
+                   watched, countries / languages, dead channels
     browser.rs     scroll/selection model for the channel list
+    favorites.rs   favorites file format (moving favorites between devices)
+    lang.rs        names of audio / subtitle languages
+    i18n.rs        translations of the core's and the desktop app's messages
   iptv-net/        networking shared by desktop and Android
     playlist.rs    playlist download with conditional requests + local copy
     health.rs      background channel checks + saved results
+    update.rs      finds and downloads new releases (SHA256SUMS.txt)
+    logo.rs        channel logo downloads
+  iptv-remote/     phone remote: small web server, PIN check, the remote page
   iptv-desktop/    Windows / Linux / macOS application `iptv`
     main.rs        startup and event loop: mpv events -> Tuner -> mpv commands
     mpv.rs         runs mpv, JSON IPC (named pipe / Unix socket), key bindings
-    panel.rs       channel list drawn as an mpv ASS overlay
+    panel.rs       channel list, picker and QR card drawn as mpv ASS overlays
+    logos.rs       logo cache, scaled into mpv image overlays
+    updater.rs     self-update (installer, AppImage, Mac app)
     storage.rs     config / cache locations, saved state
-    gui.rs         Windows GUI integration (console attach, error dialog)
+    gui.rs         OS integration (console attach, error dialogs)
   iptv-android/    JNI bridge: the Rust core as an Android native library
   iptv-web/        WebAssembly bridge: the Rust core for web front-ends
 android/           Android app (Kotlin, Media3/ExoPlayer, Cast), Gradle project
 tizen/             Samsung TV app (HTML/JS + WebAssembly core, AVPlay), install script
-packaging/windows/ installer script (Inno Setup), icon, third-party licenses
-.github/workflows/ release.yml: builds and publishes the installer on tag push
+packaging/         Windows installer (Inno Setup), Linux AppImage and macOS
+                   disk image scripts, icons, third-party licenses
+docs/quick-start/  quick start guides (LaTeX sources and PDFs, six languages)
+.github/workflows/ release.yml: builds and publishes every download on tag
+                   push; pages.yml: publishes the Samsung TV updates
 ```
 
 mpv plays the video and draws the on-screen text. Keys pressed in its window

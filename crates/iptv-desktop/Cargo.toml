@@ -16,6 +16,7 @@ iptv-remote = { path = "../iptv-remote" }
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 dirs = "6"
+sys-locale = "0.3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

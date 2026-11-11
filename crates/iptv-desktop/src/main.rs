@@ -12,7 +12,7 @@ use std::{path::PathBuf, time::Duration};
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use iptv_core::{lang::language_codes, tuner::DIGIT_TIMEOUT_MS, Action, Effect, Tuner};
+use iptv_core::{i18n, lang::language_codes, tuner::DIGIT_TIMEOUT_MS, Action, Effect, Tuner};
 use iptv_net::{health, playlist, DEFAULT_USER_AGENT};
 use iptv_remote::{self as remote, Remote};
 use serde_json::json;
@@ -98,6 +98,12 @@ struct Args {
 }
 
 fn main() {
+    // Messages follow the system language (IPTV_LANG overrides it).
+    let lang = std::env::var("IPTV_LANG")
+        .ok()
+        .or_else(sys_locale::get_locale)
+        .unwrap_or_default();
+    i18n::set_language(&lang);
     let has_console = gui::attach_parent_console();
     let args = Args::parse();
     let runtime = tokio::runtime::Runtime::new().expect("failed to start async runtime");
@@ -174,11 +180,13 @@ async fn run(args: Args) -> Result<()> {
         small: false,
     };
     let (mut player, mut events) = Mpv::spawn(&mpv_path, &opts).await?;
-    player.show_text("Loading channels…", 120_000).await?;
+    player
+        .show_text(i18n::t("Loading channels…"), 120_000)
+        .await?;
 
-    let channels = load_channels(&args.playlist)
-        .await
-        .context("Could not load the channel list. Check your internet connection.")?;
+    let channels = load_channels(&args.playlist).await.context(i18n::t(
+        "Could not load the channel list. Check your internet connection.",
+    ))?;
 
     let mut state = storage::load_state();
     if let Some(n) = args.channel {
@@ -403,7 +411,7 @@ async fn run(args: Args) -> Result<()> {
                 match res {
                     Ok(Ok(Some((update, installer)))) => {
                         eprintln!("Update {} downloaded; installing", update.version);
-                        let text = format!("Updating IPTV to version {}…\nIt will restart in a few seconds.", update.version);
+                        let text = i18n::tf("Updating IPTV to version {0}…\nIt will restart in a few seconds.", &[&update.version]);
                         app.player.show_text(&text, 6000).await?;
                         install_at = Some((Instant::now() + Duration::from_secs(4), installer));
                     }
@@ -568,15 +576,16 @@ impl App {
         self.hinted_seq = self.tune_seq;
         let mut parts = Vec::new();
         if audio > 1 {
-            parts.push(format!("{audio} audio languages  (a)"));
+            parts.push(i18n::tf("{0} audio languages  (a)", &[&audio]));
         }
         if subs > 0 {
-            parts.push(format!(
-                "{subs} subtitle{}  (t)",
-                if subs == 1 { "" } else { "s" }
-            ));
+            parts.push(if subs == 1 {
+                i18n::t("1 subtitle  (t)").to_string()
+            } else {
+                i18n::tf("{0} subtitles  (t)", &[&subs])
+            });
         }
-        let ass = panel::hint(&format!("This channel has {}", parts.join("   ·   ")));
+        let ass = panel::hint(&i18n::tf("This channel has {0}", &[&parts.join("   ·   ")]));
         self.player.overlay(HINT_OVERLAY_ID, &ass, panel::H).await?;
         self.hint_until = Some(Instant::now() + Duration::from_millis(HINT_MS));
         Ok(())
@@ -605,9 +614,9 @@ impl App {
         let audio = kind == TrackKind::Audio;
         if (audio && list.len() < 2) || (!audio && list.is_empty()) {
             let msg = if audio {
-                "This channel has a single audio language"
+                i18n::t("This channel has a single audio language")
             } else {
-                "This channel has no subtitles"
+                i18n::t("This channel has no subtitles")
             };
             return self.player.show_text(msg, 2500).await;
         }
@@ -643,14 +652,18 @@ impl App {
                     self.tuner.set_track_prefs(audio_pref, lang)
                 };
                 self.apply(fx).await?;
-                let what = if audio { "Audio" } else { "Subtitles" };
-                format!("{what}: {}   ({}/{})", t.label(), i + 1, list.len())
+                let (pos, n) = (i + 1, list.len());
+                if audio {
+                    i18n::tf("Audio: {0}   ({1}/{2})", &[&t.label(), &pos, &n])
+                } else {
+                    i18n::tf("Subtitles: {0}   ({1}/{2})", &[&t.label(), &pos, &n])
+                }
             }
             None => {
                 self.player.set_property("sid", json!("no")).await?;
                 let fx = self.tuner.set_track_prefs(audio_pref, None);
                 self.apply(fx).await?;
-                "Subtitles: off".to_string()
+                i18n::t("Subtitles: off").to_string()
             }
         };
         // Update our copy now; mpv's track-list event follows.
@@ -679,7 +692,7 @@ impl App {
         let Some(idx) = idx else {
             return self
                 .player
-                .show_text("No other channel to show", 2500)
+                .show_text(i18n::t("No other channel to show"), 2500)
                 .await;
         };
         let opts = mpv::Options {
@@ -718,7 +731,10 @@ impl App {
         pip.player
             .play(
                 &ch.url,
-                &format!("{}  {} — small picture", idx + 1, ch.name),
+                &i18n::tf(
+                    "{0} — small picture",
+                    &[&format!("{}  {}", idx + 1, ch.name)],
+                ),
                 ch.user_agent.as_deref().unwrap_or(DEFAULT_USER_AGENT),
                 ch.referrer.as_deref().unwrap_or(""),
             )
@@ -730,7 +746,7 @@ impl App {
         let Some(pip) = self.pip.as_mut() else {
             return self
                 .player
-                .show_text("Press p for a second channel in the corner", 2500)
+                .show_text(i18n::t("Press p for a second channel in the corner"), 2500)
                 .await;
         };
         pip.forward = forward;
@@ -745,7 +761,7 @@ impl App {
         let Some(small) = self.pip.as_ref().map(|p| p.idx) else {
             return self
                 .player
-                .show_text("Press p for a second channel in the corner", 2500)
+                .show_text(i18n::t("Press p for a second channel in the corner"), 2500)
                 .await;
         };
         let big = self.tuner.current();
@@ -807,19 +823,21 @@ impl App {
             return self
                 .player
                 .show_text(
-                    "No favorites to export yet (s adds the current channel)",
+                    i18n::t("No favorites to export yet (s adds the current channel)"),
                     3000,
                 )
                 .await;
         }
         let path = Self::favorites_file();
         let msg = match std::fs::write(&path, self.tuner.export_favorites()) {
-            Ok(()) => format!(
-                "Saved {n} favorite{} to\n{}\n(on another device: I, or the phone remote)",
-                if n == 1 { "" } else { "s" },
-                path.display()
+            Ok(()) => i18n::tf(
+                "Favorites saved ({0}) to\n{1}\n(on another device: I, or the phone remote)",
+                &[&n, &path.display()],
             ),
-            Err(e) => format!("Couldn't save the favorites to {}: {e}", path.display()),
+            Err(e) => i18n::tf(
+                "Couldn't save the favorites to {0}: {1}",
+                &[&path.display(), &e],
+            ),
         };
         self.player.show_text(&msg, 6000).await
     }
@@ -830,9 +848,9 @@ impl App {
         let text = match std::fs::read_to_string(&path) {
             Ok(t) => t,
             Err(_) => {
-                let msg = format!(
-                    "Put “IPTV favorites.json” (from E on another device) here:\n{}",
-                    path.display()
+                let msg = i18n::tf(
+                    "Put “IPTV favorites.json” (from E on another device) here:\n{0}",
+                    &[&path.display()],
                 );
                 return self.player.show_text(&msg, 6000).await;
             }
@@ -1013,9 +1031,9 @@ impl App {
 
     fn check_status(&self) -> Option<String> {
         (self.check_done < self.check_total).then(|| {
-            format!(
-                "checking channels {}%",
-                self.check_done * 100 / self.check_total.max(1)
+            i18n::tf(
+                "checking channels {0}%",
+                &[&(self.check_done * 100 / self.check_total.max(1))],
             )
         })
     }
@@ -1384,6 +1402,7 @@ impl App {
         self.typing = false;
         self.picker = None;
         self.player.remove_overlay(PANEL_OVERLAY_ID).await?;
+        self.place_list_logos().await?; // removes the list's logos
         self.player
             .set_property("osd-align-x", json!("left"))
             .await?;

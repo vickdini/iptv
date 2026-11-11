@@ -11,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::tuner::normalize;
+use crate::{i18n::t, tuner::normalize};
 
 const KIND: &str = "favorites";
 const VERSION: u32 = 1;
@@ -43,12 +43,12 @@ pub fn to_file(entries: Vec<Entry>) -> String {
 /// Reads a favorites file; the error is a message for the user.
 pub fn parse(text: &str) -> Result<Vec<Entry>, String> {
     let file: File = serde_json::from_str(text.trim_start_matches('\u{feff}'))
-        .map_err(|_| "This isn't an IPTV favorites file.".to_string())?;
+        .map_err(|_| t("This isn't an IPTV favorites file.").to_string())?;
     if file.iptv != KIND {
-        return Err("This isn't an IPTV favorites file.".into());
+        return Err(t("This isn't an IPTV favorites file.").into());
     }
     if file.version > VERSION {
-        return Err("This favorites file is from a newer IPTV: update this one first.".into());
+        return Err(t("This favorites file is from a newer IPTV: update this one first.").into());
     }
     Ok(file
         .favorites

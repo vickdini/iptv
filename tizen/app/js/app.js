@@ -17,33 +17,16 @@ var UI_HTML = [
     '<div id="subs" class="subs hidden"><span id="subs-text"></span></div>',
     '<div id="osd" class="osd hidden"></div>',
     '<div id="tracks" class="tracks hidden"></div>',
-    '<div id="status" class="status">Loading channels…</div>',
+    '<div id="status" class="status">' + T('Loading channels…') + '</div>',
     '<div id="panel" class="panel hidden">',
     '  <div class="panel-head">',
     '    <div id="panel-title" class="panel-title"></div>',
     '    <div id="panel-keys" class="panel-keys"></div>',
-    '    <input id="search" class="search" type="text" placeholder="Search channels…" autocomplete="off" spellcheck="false">',
+    '    <input id="search" class="search" type="text" placeholder="' + T('Search channels…') + '" autocomplete="off" spellcheck="false">',
     '    <div id="panel-status" class="panel-status"></div>',
     '  </div>',
     '  <div id="rows" class="rows"></div>',
     '</div>',
-].join('\n');
-
-var HELP = [
-    'Up / Down, CH+ / CH−    change channel',
-    '0–9                    go to channel number',
-    'OK                     channel list',
-    'Left / Right           recently watched, groups',
-    'PRE-CH                 previous channel',
-    'INFO                   channel info',
-    'Red                    favorite      Green  favorites only',
-    'Blue                   search channels by name',
-    'Yellow                 audio language & subtitles',
-    '                       (or this help if there is no choice)',
-    'Yellow (in the list)   countries & languages',
-    'Back                   close list / exit',
-    '',
-    'IPTV ' + (window.IPTV_VERSION || ''),
 ].join('\n');
 
 var core = null;
@@ -146,14 +129,14 @@ function boot() {
     try {
         initCore();
     } catch (e) {
-        showStatus('Could not start: ' + e);
+        showStatus(TF('Could not start: {0}', e));
         return;
     }
     load();
 }
 
 function load() {
-    showStatus('Loading channels…');
+    showStatus(T('Loading channels…'));
     // iptv-org also publishes the same channels grouped by country and by
     // language, for the countries & languages filter (optional).
     var companion = function (name, key) {
@@ -163,10 +146,11 @@ function load() {
         loadPlaylist(), HealthCache.load(),
         companion('index.country.m3u', 'byCountry'), companion('index.language.m3u', 'byLanguage'),
     ]).then(function (res) {
-        showStatus('Loading channels… (' + Math.round(res[0].length / 1024) + ' KB)');
+        showStatus(TF('Loading channels… ({0} KB)', Math.round(res[0].length / 1024)));
         var state = '';
         try { state = localStorage.getItem(STATE_KEY) || ''; } catch (e) { /* ignore */ }
         core = new wasm_bindgen.WebCore(res[0], state, res[2], res[3]);
+        core.setLanguage(navigator.language || 'en');
         health = res[1];
         names = core.names();
         logos = core.logos();
@@ -178,8 +162,8 @@ function load() {
         if (IS_TIZEN) runChecks(jobs);
         setInterval(tick, 1000);
     }).catch(function (e) {
-        showStatus('Could not load the channel list.\n' + (e && e.message ? e.message : e) +
-            '\n\nCheck the internet connection, then press OK to try again.');
+        showStatus(T('Could not load the channel list.') + '\n' + (e && e.message ? e.message : e) +
+            '\n\n' + T('Check the internet connection, then press OK to try again.'));
         loaded = false;
         retryOnEnter = true;
     });
@@ -243,12 +227,12 @@ function tick() {
 /** Under the list title: check progress, or the countries / languages shown. */
 function listStatus() {
     var region = core.regionLabel();
-    return checkStatus() || (region ? 'Showing: ' + region : '');
+    return checkStatus() || (region ? TF('Showing: {0}', region) : '');
 }
 
 function checkStatus() {
     return checks.done < checks.total
-        ? 'Checking channels ' + Math.floor(checks.done * 100 / Math.max(1, checks.total)) + '%'
+        ? TF('Checking channels {0}%', Math.floor(checks.done * 100 / Math.max(1, checks.total)))
         : '';
 }
 
@@ -410,10 +394,11 @@ function buildRows() {
 
 /* ------------------------------------------------- countries & languages */
 
-var KEYS_CHANNELS = '◀ ▶ recent, groups &nbsp; <span class="red">●</span> favorite &nbsp; <span class="green">●</span> favorites &nbsp; ' +
-    '<span class="blue">●</span> search &nbsp; <span class="yellow">●</span> countries';
-var KEYS_PICKER = '◀ ▶ countries / languages &nbsp; OK tick &nbsp; <span class="red">●</span> clear all &nbsp; ' +
-    '<span class="blue">●</span> find &nbsp; Back done';
+var KEYS_CHANNELS = '◀ ▶ ' + T('recent, groups') + ' &nbsp; <span class="red">●</span> ' + T('favorite') +
+    ' &nbsp; <span class="green">●</span> ' + T('favorites') + ' &nbsp; <span class="blue">●</span> ' + T('search') +
+    ' &nbsp; <span class="yellow">●</span> ' + T('countries');
+var KEYS_PICKER = '◀ ▶ ' + T('countries / languages') + ' &nbsp; ' + T('OK tick') + ' &nbsp; <span class="red">●</span> ' +
+    T('clear all') + ' &nbsp; <span class="blue">●</span> ' + T('find') + ' &nbsp; ' + T('Back done');
 
 /** The chooser, shown in the channel list's place: null when closed. */
 var picker = null;
@@ -463,12 +448,12 @@ function pickerChosen() {
 
 function renderPicker() {
     var chosen = pickerChosen();
-    var name = picker.tab === 'countries' ? 'Countries' : 'Languages';
+    var name = picker.tab === 'countries' ? T('Countries') : T('Languages');
     $('panel-title').textContent = chosen.length ? name + ' · ' + chosen.length + ' chosen' : name;
     $('panel-keys').innerHTML = KEYS_PICKER;
     var label = core.regionLabel();
-    $('panel-status').textContent = !picker.all.length ? 'Not available for this playlist'
-        : label ? 'Showing: ' + label : 'Nothing chosen: all channels';
+    $('panel-status').textContent = !picker.all.length ? T('Not available for this playlist')
+        : label ? TF('Showing: {0}', label) : T('Nothing chosen: all channels');
     for (var r = 0; r < panel.els.length; r++) {
         var el = panel.els[r];
         var i = picker.scroll + r;
@@ -480,7 +465,7 @@ function renderPicker() {
             el.classList.toggle('selected', i === picker.sel);
             el.classList.add('playing');
             el.firstChild.textContent = '';
-            el.lastChild.textContent = '✕  Clear all filters (show every channel)';
+            el.lastChild.textContent = T('✕  Clear all filters (show every channel)');
             continue;
         }
         var entry = picker.all[picker.items[i]];
@@ -609,7 +594,7 @@ function onRowClick(ev) {
 function trackLabel(t, i) {
     if (t.label) return t.label;
     if (t.lang) return core.languageName(t.lang);
-    return 'Track ' + (i + 1);
+    return TF('Track {0}', i + 1);
 }
 
 function prefs() { return JSON.parse(core.trackPrefs()); }
@@ -628,10 +613,10 @@ function onTracks(seq) {
         if (s) player.select('subs', s.id);
     }
     var parts = [];
-    if (t.audio.length > 1) parts.push(t.audio.length + ' audio languages');
-    if (t.subs.length) parts.push(t.subs.length + ' subtitles');
+    if (t.audio.length > 1) parts.push(TF('{0} audio languages', t.audio.length));
+    if (t.subs.length) parts.push(TF('{0} subtitles', t.subs.length));
     if (parts.length && !panel.open && seq === currentSeq) {
-        showOsd('This channel has ' + parts.join(' · ') + '\nYellow: choose', 5000);
+        showOsd(TF('This channel has {0}\nYellow: choose', parts.join(' · ')), 5000);
     }
 }
 
@@ -653,7 +638,7 @@ function hideSubtitle() {
 /** Yellow outside the list: the menu, or help when there is no choice. */
 function openTracks() {
     var t = player.tracks();
-    if (t.audio.length < 2 && !t.subs.length) { showOsd(HELP, 8000); return; }
+    if (t.audio.length < 2 && !t.subs.length) { showOsd(helpText(), 8000); return; }
     tracksMenu = { row: t.audio.length > 1 ? 0 : 1 };
     $('osd').classList.add('hidden');
     renderTracks();
@@ -667,7 +652,8 @@ function closeTracks() {
 
 function renderTracks() {
     var t = player.tracks();
-    var html = '<div class="title">Audio &amp; subtitles &nbsp; ▲▼ ◀▶ &nbsp; Back: close</div>';
+    var html = '<div class="title">' + escapeHtml(T('Audio & subtitles')) + ' &nbsp; ▲▼ ◀▶ &nbsp; ' +
+        escapeHtml(T('Back: close')) + '</div>';
     function row(n, name, value) {
         html += '<div class="item' + (tracksMenu.row === n ? ' selected' : '') + '"><span>' + name +
             '</span><span class="value">◀ ' + escapeHtml(value) + ' ▶</span></div>';
@@ -678,8 +664,8 @@ function renderTracks() {
         }
         return off;
     }
-    if (t.audio.length > 1) row(0, 'Audio', current(t.audio, '—'));
-    if (t.subs.length) row(1, 'Subtitles', current(t.subs, 'Off'));
+    if (t.audio.length > 1) row(0, escapeHtml(T('Audio')), current(t.audio, '—'));
+    if (t.subs.length) row(1, escapeHtml(T('Subtitles')), current(t.subs, T('Off')));
     var el = $('tracks');
     el.innerHTML = html;
     el.classList.remove('hidden');
@@ -716,7 +702,7 @@ function stepTrack(kind, delta) {
             player.select('subs', null);
             hideSubtitle();
             perform(core.setTrackPrefs(p.audio, null));
-            label = 'Off';
+            label = T('Off');
         } else {
             player.select('subs', list[s].id);
             perform(core.setTrackPrefs(p.audio, list[s].lang || null));
@@ -729,11 +715,10 @@ function stepTrack(kind, delta) {
 /** Audio / subtitle remote keys: the next one, shown briefly. */
 function quickTrack(kind) {
     var label = stepTrack(kind, 1);
-    var what = kind === 'audio' ? 'Audio: ' : 'Subtitles: ';
     if (label === null) {
-        showOsd(kind === 'audio' ? 'This channel has a single audio language' : 'This channel has no subtitles', 2500);
+        showOsd(T(kind === 'audio' ? 'This channel has a single audio language' : 'This channel has no subtitles'), 2500);
     } else {
-        showOsd(what + label, 2500);
+        showOsd(TF(kind === 'audio' ? 'Audio: {0}' : 'Subtitles: {0}', label), 2500);
     }
 }
 
@@ -877,7 +862,7 @@ window.addEventListener('unhandledrejection', function (e) {
 
 // The loader announces a downloaded update before restarting into it.
 window.addEventListener('iptv-update', function (e) {
-    showOsd('IPTV ' + e.detail + ' installed.\nRestarting…', 4000);
+    showOsd(TF('IPTV {0} installed.\nRestarting…', e.detail), 4000);
 });
 
 // The loader may run this after the page's load event has already fired.

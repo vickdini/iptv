@@ -216,6 +216,15 @@ export!(
     }
 );
 
+// setLanguage(code): the language of the core's messages ("it", "pt-BR"...).
+export!(
+    Java_io_github_vickdini_iptv_Core_setLanguage,
+    |env, code: JString<'l>| {
+        iptv_core::i18n::set_language(&string(env, &code)?.unwrap_or_default());
+        Ok(String::new())
+    }
+);
+
 // exportFavorites(): the favorites file's text.
 export!(Java_io_github_vickdini_iptv_Core_exportFavorites, |_env| {
     app::with(|a| Ok(a.export_favorites()))

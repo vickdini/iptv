@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="loading">Chargement des chaînes…</string>
+    <string name="load_failed">Impossible de charger la liste des chaînes.\n%1$s\n\nVérifiez votre connexion internet, puis touchez ici pour réessayer.</string>
+    <string name="search_hint">Rechercher une chaîne…</string>
+    <string name="panel_hint">Touchez pour regarder · appui long pour les favoris</string>
+    <string name="group_prev">Groupe précédent</string>
+    <string name="group_next">Groupe suivant</string>
+    <string name="favorites_only">Favoris seulement</string>
+    <string name="close">Fermer</string>
+    <string name="exit">Quitter IPTV</string>
+    <string name="regions">Pays et langues</string>
+    <string name="tracks">Langue audio et sous-titres</string>
+    <string name="remote">Télécommande sur téléphone</string>
+    <string name="recent">Regardées récemment</string>
+    <string name="favorites_move">Déplacer les favoris</string>
+    <string name="favorites_export">Enregistrer les favoris dans un fichier</string>
+    <string name="favorites_import">Ajouter des favoris depuis un fichier</string>
+    <string name="favorites_saved">%1$d favoris enregistrés. Sur un autre appareil : appui long sur ★, ou la télécommande du téléphone.</string>
+    <string name="favorites_none">Pas encore de favoris à enregistrer (appui long sur une chaîne pour l\'ajouter).</string>
+    <string name="favorites_no_picker">Cet appareil ne peut pas ouvrir de fichiers : utilisez la télécommande du téléphone pour déplacer les favoris.</string>
+    <string name="favorites_failed">Impossible d\'utiliser ce fichier : %1$s</string>
+    <string name="pip_up">Chaîne suivante</string>
+    <string name="pip_down">Chaîne précédente</string>
+    <string name="split_hint">Deux chaînes : touchez une moitié pour l\'entendre, faites glisser une moitié pour changer sa chaîne. Tournez le téléphone à l\'horizontale pour une seule.</string>
+    <string name="remote_scan">Scannez avec l\'appareil photo du téléphone (même Wi-Fi que cet appareil),\nou ouvrez %1$s et saisissez le code %2$s.</string>
+    <string name="remote_no_network">Cet appareil n\'est connecté à aucun réseau.</string>
+    <string name="remote_failed">Impossible de démarrer la télécommande du téléphone : %1$s</string>
+    <string name="tracks_audio">Langue audio</string>
+    <string name="tracks_subtitles">Sous-titres</string>
+    <string name="tracks_off">Désactivés</string>
+    <string name="tracks_none">Cette chaîne n\'a qu\'une langue audio et pas de sous-titres.</string>
+    <string name="tracks_hint_audio">%d langues audio</string>
+    <string name="tracks_hint_subs">%d sous-titres</string>
+    <string name="tracks_hint">Cette chaîne propose %1$s.\nChangez-les avec le bouton des sous-titres dans la liste des chaînes.</string>
+    <string name="tracks_hint_tv">Cette chaîne propose %1$s.\nChangez-les avec la touche Audio / Sous-titres ou le bouton de la liste des chaînes.</string>
+    <string name="regions_countries">Pays</string>
+    <string name="regions_languages">Langues</string>
+    <string name="regions_show_all">Afficher toutes les chaînes</string>
+    <string name="regions_clear_all">Tout effacer</string>
+    <string name="regions_none">Les informations sur les pays et les langues ne sont pas disponibles pour cette liste.</string>
+    <string name="regions_hint">Affiche les chaînes de n\'importe quel pays choisi ou dans n\'importe quelle langue choisie.</string>
+    <string name="update_ready">IPTV %1$s est disponible — installation de la mise à jour…</string>
+    <string name="casting">Lecture sur votre TV (Chromecast)</string>
+</resources>

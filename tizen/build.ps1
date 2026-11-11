@@ -66,7 +66,7 @@ $css = [IO.File]::ReadAllText("$src\css\style.css")
 $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("$gen\iptv_web_bg.wasm"))
 [void]$sb.AppendLine("window.IPTV_WASM_B64 = '$b64';")
 [void]$sb.AppendLine([IO.File]::ReadAllText("$gen\iptv_web.js"))
-foreach ($f in 'platform.js', 'checker.js', 'app.js') {
+foreach ($f in 'platform.js', 'checker.js', 'i18n.js', 'app.js') {
     [void]$sb.AppendLine([IO.File]::ReadAllText("$src\js\$f"))
 }
 [void]$sb.AppendLine("/*IPTV-BUNDLE-END*/")   # the loader rejects cut-off downloads

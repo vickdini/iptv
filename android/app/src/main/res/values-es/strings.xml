@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="loading">Cargando canales…</string>
+    <string name="load_failed">No se pudo cargar la lista de canales.\n%1$s\n\nComprueba tu conexión a internet y toca aquí para volver a intentarlo.</string>
+    <string name="search_hint">Buscar canales…</string>
+    <string name="panel_hint">Toca para ver · mantén pulsado para favoritos</string>
+    <string name="group_prev">Grupo anterior</string>
+    <string name="group_next">Grupo siguiente</string>
+    <string name="favorites_only">Solo favoritos</string>
+    <string name="close">Cerrar</string>
+    <string name="exit">Salir de IPTV</string>
+    <string name="regions">Países e idiomas</string>
+    <string name="tracks">Idioma del audio y subtítulos</string>
+    <string name="remote">Mando desde el móvil</string>
+    <string name="recent">Vistos recientemente</string>
+    <string name="favorites_move">Mover favoritos</string>
+    <string name="favorites_export">Guardar favoritos en un archivo</string>
+    <string name="favorites_import">Añadir favoritos desde un archivo</string>
+    <string name="favorites_saved">%1$d favoritos guardados. En otro dispositivo: mantén pulsado ★, o usa el mando desde el móvil.</string>
+    <string name="favorites_none">Aún no hay favoritos que guardar (mantén pulsado un canal para añadirlo).</string>
+    <string name="favorites_no_picker">Este dispositivo no puede abrir archivos: usa el mando desde el móvil para mover los favoritos.</string>
+    <string name="favorites_failed">No se pudo usar ese archivo: %1$s</string>
+    <string name="pip_up">Canal siguiente</string>
+    <string name="pip_down">Canal anterior</string>
+    <string name="split_hint">Dos canales: toca una mitad para oírla y desliza sobre una mitad para cambiar su canal. Gira el móvil en horizontal para ver uno.</string>
+    <string name="remote_scan">Escanéalo con la cámara del móvil (misma Wi-Fi que este dispositivo),\no abre %1$s e introduce el PIN %2$s.</string>
+    <string name="remote_no_network">Este dispositivo no está conectado a una red.</string>
+    <string name="remote_failed">No se pudo iniciar el mando desde el móvil: %1$s</string>
+    <string name="tracks_audio">Idioma del audio</string>
+    <string name="tracks_subtitles">Subtítulos</string>
+    <string name="tracks_off">Desactivados</string>
+    <string name="tracks_none">Este canal tiene un solo idioma de audio y no tiene subtítulos.</string>
+    <string name="tracks_hint_audio">%d idiomas de audio</string>
+    <string name="tracks_hint_subs">%d subtítulos</string>
+    <string name="tracks_hint">Este canal tiene %1$s.\nCámbialos con el botón de subtítulos de la lista de canales.</string>
+    <string name="tracks_hint_tv">Este canal tiene %1$s.\nCámbialos con la tecla Audio / Subtítulos o con el botón de la lista de canales.</string>
+    <string name="regions_countries">Países</string>
+    <string name="regions_languages">Idiomas</string>
+    <string name="regions_show_all">Mostrar todos los canales</string>
+    <string name="regions_clear_all">Borrar todo</string>
+    <string name="regions_none">La información de países e idiomas no está disponible para esta lista.</string>
+    <string name="regions_hint">Muestra los canales de cualquiera de los países elegidos o en cualquiera de los idiomas elegidos.</string>
+    <string name="update_ready">IPTV %1$s está disponible — instalando la actualización…</string>
+    <string name="casting">Reproduciendo en tu TV (Chromecast)</string>
+</resources>

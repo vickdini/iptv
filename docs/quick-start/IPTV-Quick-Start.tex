@@ -1,86 +1,14 @@
-% IPTV quick start guide. Build in this folder with:
+% IPTV quick start guide, English edition. Build in this folder with:
 %   pdflatex IPTV-Quick-Start.tex   (run it twice, for the table of contents)
-\documentclass[11pt,a4paper]{article}
-
-\usepackage[T1]{fontenc}
-\usepackage[utf8]{inputenc}
-\usepackage{lmodern}
-\usepackage[scaled=0.92]{helvet}
-\renewcommand{\familydefault}{\sfdefault}
-\usepackage[margin=2.2cm,headheight=14pt]{geometry}
-\usepackage{graphicx}
-\usepackage[table]{xcolor}
-\usepackage{booktabs}
-\usepackage{tabularx}
-\usepackage{xltabular}
-\usepackage{enumitem}
-\usepackage{titlesec}
-\usepackage{fancyhdr}
-\usepackage{pifont}
-\usepackage{amssymb}
-\usepackage[hidelinks]{hyperref}
-
-\newcommand{\version}{0.11}
-\definecolor{accent}{HTML}{1E6FD9}
-\definecolor{dim}{HTML}{5F6673}
-\definecolor{notebg}{HTML}{EEF4FC}
-\definecolor{warnbg}{HTML}{FFF6E0}
-\definecolor{tvred}{HTML}{D32F2F}
-\definecolor{tvgreen}{HTML}{2E7D32}
-\definecolor{tvyellow}{HTML}{C9A400}
-\definecolor{tvblue}{HTML}{1565C0}
-
-\hypersetup{pdftitle={IPTV Quick Start Guide}, pdfauthor={IPTV project}}
-\setlist{itemsep=2pt, topsep=4pt}
-\setlength{\parindent}{0pt}
-\setlength{\parskip}{6pt}
-\renewcommand{\arraystretch}{1.25}
-
-\titleformat{\section}{\Large\bfseries\color{accent}}{\thesection}{0.6em}{}
-\titleformat{\subsection}{\large\bfseries}{\thesubsection}{0.6em}{}
-\titlespacing*{\section}{0pt}{14pt}{6pt}
-\titlespacing*{\subsection}{0pt}{10pt}{4pt}
-
-\pagestyle{fancy}
-\fancyhf{}
-\fancyhead[L]{\small\color{dim}IPTV Quick Start Guide}
-\fancyhead[R]{\small\color{dim}github.com/vickdini/iptv}
-\fancyfoot[C]{\small\color{dim}\thepage}
-\renewcommand{\headrulewidth}{0.4pt}
-\renewcommand{\sectionmark}[1]{\markboth{#1}{}}
-
-% A key or button on a keyboard / remote.
-\newcommand{\key}[1]{{\setlength{\fboxsep}{1.5pt}\fbox{\footnotesize\vphantom{Ay}#1}}}
-% A coloured remote button.
-\newcommand{\colorkey}[2]{\textcolor{#1}{\ding{108}}\,\textbf{#2}}
-% Shaded boxes for tips and warnings.
-\newcommand{\tip}[1]{\par\noindent\colorbox{notebg}{\parbox{\dimexpr\linewidth-2\fboxsep}{\small\textbf{Tip.} #1}}\par}
-\newcommand{\note}[1]{\par\noindent\colorbox{warnbg}{\parbox{\dimexpr\linewidth-2\fboxsep}{\small #1}}\par}
-\newcommand{\menu}[1]{\textit{#1}}
-\newcommand{\download}{\url{https://github.com/vickdini/iptv/releases/latest}}
+% Other languages: IPTV-Quick-Start-it.tex, -es, -fr, -de, -pt (same layout,
+% from preamble.tex).
+\newcommand{\GuideLang}{english}
+\newcommand{\GuideTitle}{Quick Start Guide}
+\newcommand{\TipLabel}{Tip.}
+\input{preamble}
 
 \begin{document}
-
-% ------------------------------------------------------------------ cover
-\begin{titlepage}
-  \centering
-  \vspace*{0.5cm}
-  {\fontsize{40}{48}\selectfont\bfseries\color{accent} IPTV\par}
-  \vspace{0.3cm}
-  {\LARGE Quick Start Guide\par}
-  \vspace{0.3cm}
-  {\large\color{dim} Watch free TV channels and zap like a TV\par}
-  \vspace{1cm}
-  \includegraphics[width=0.52\textwidth]{../images/iptv-overview.png}\par
-  \vfill
-  {\large Windows \textbullet{} macOS \textbullet{} Linux \textbullet{} Android
-   \textbullet{} Android TV \& Fire TV \textbullet{} Chromecast \textbullet{} Samsung TV\par}
-  \vspace{0.5cm}
-  {\color{dim} Version \version{} \textbullet{} \url{https://github.com/vickdini/iptv}\par}
-\end{titlepage}
-
-\tableofcontents
-\thispagestyle{fancy}
+\cover{Watch free TV channels and zap like a TV}{Version}
 
 % ------------------------------------------------------------------ intro
 \section{About IPTV}
@@ -95,10 +23,13 @@ favorites and groups such as News, Movies or Sports.
         IPTV starts, and the app updates itself when a new version is out.
   \item \textbf{Only channels that work.} Offline channels are hidden
         automatically, so zapping never stops on a black screen.
-  \item \textbf{Find channels quickly.} Search by name, or show only the
+  \item \textbf{Find channels quickly.} Search by name, see each channel's
+        logo, go back to the channels you watched recently, or show only the
         countries and languages you are interested in.
-  \item \textbf{Your language.} On channels that broadcast it, choose the
-        audio language and turn on subtitles.
+  \item \textbf{Your language.} IPTV speaks English, Italian, Spanish,
+        French, German and Portuguese, and follows your device's language.
+        On channels that broadcast it, choose the audio language and turn on
+        subtitles.
   \item \textbf{Phone remote.} Control the TV or computer from your phone's
         browser (Section~\ref{sec:remote}).
 \end{itemize}
@@ -135,10 +66,8 @@ IPTV opens maximized and starts playing straight away. To remove it, use
 These keys work on every computer: Windows, macOS and Linux.
 
 \rowcolors{2}{gray!8}{white}
-\begin{xltabular}{\linewidth}{@{}>{\raggedright\arraybackslash}p{5.4cm}X@{}}
-\toprule
-\textbf{Key} & \textbf{What it does} \\
-\midrule
+\begin{xltabular}{\linewidth}{@{}KX@{}}
+\keyshead{Key}{What it does}
 \key{$\uparrow$} \key{$\downarrow$}, \key{PgUp} \key{PgDn}, mouse wheel & next / previous channel \\
 \key{0}--\key{9}, then wait or \key{Enter} & go to a channel number \\
 \key{Backspace} & back to the previous channel \\
@@ -163,11 +92,11 @@ These keys work on every computer: Windows, macOS and Linux.
 \end{xltabular}
 
 \subsection{The channel list}
-Press \key{l} to open a scrollable list of channels on the left; the video
-keeps playing beside it. Scroll with the mouse wheel and click a channel to
-watch it. Start typing (or press \key{/}) to search: accents and capital
-letters don't matter. \key{Esc} closes the list. Press \key{g} for the channels
-you watched recently, most recent first.
+Press \key{l} to open a scrollable list of channels, with their logos, on the
+left; the video keeps playing beside it. Scroll with the mouse wheel and click
+a channel to watch it. Start typing (or press \key{/}) to search: accents and
+capital letters don't matter. \key{Esc} closes the list. Press \key{g} for the
+channels you watched recently, most recent first.
 
 \subsection{Countries and languages}
 Press \key{c}, type to find a country or language, and press \key{Enter} to
@@ -181,9 +110,10 @@ the bottom of the screen says so. Press \key{a} for the next audio language
 and \key{t} for the next subtitles (and finally \emph{off}). IPTV remembers
 the language and uses it on every other channel that offers it.
 
-\subsection{Updates}
-Each time it starts, IPTV checks for a new version. If there is one, it
-installs it silently and restarts on its own after a few seconds.
+\subsection{Language and updates}
+IPTV uses the language of your system. Each time it starts, it checks for a
+new version; if there is one, it installs it silently and restarts on its
+own after a few seconds.
 
 % ------------------------------------------------------------------ macOS
 \section{macOS}
@@ -260,13 +190,13 @@ to (your home folder, for example).
   \item IPTV isn't on Google Play, so Play Protect may warn about an unknown
         developer: choose \menu{Install anyway}.
 \end{enumerate}
+You can also install it with \emph{Obtainium}, which keeps apps up to date
+straight from their release page.
 
 \subsection{Gestures}
 \rowcolors{2}{gray!8}{white}
-\begin{xltabular}{\linewidth}{@{}>{\raggedright\arraybackslash}p{5.4cm}X@{}}
-\toprule
-\textbf{Gesture} & \textbf{What it does} \\
-\midrule
+\begin{xltabular}{\linewidth}{@{}KX@{}}
+\keyshead{Gesture}{What it does}
 swipe up / down & next / previous channel \\
 tap & open / close the channel list \\
 double-tap & back to the previous channel \\
@@ -291,19 +221,23 @@ Tap the screen to open it. Tap a channel to watch it, long-press it to add
 or remove a favorite. The buttons at the top:
 \begin{itemize}
   \item \textbf{Search} box: type part of a channel's name.
-  \item $\blacktriangleleft$\,$\blacktriangleright$ arrows and $\bigstar$: previous /
-        next group, favorites only.
+  \item $\blacktriangleleft$\,$\blacktriangleright$ arrows: previous / next group.
+  \item \textbf{Clock}: the channels you watched recently.
+  \item $\bigstar$: favorites only. Long-press it to save your favorites to a
+        file, or add them from one.
   \item \textbf{Globe}: choose countries and languages.
   \item \textbf{Subtitles} (only on channels that offer a choice): audio
         language and subtitles.
+  \item \textbf{Phone remote}: control IPTV from another phone
+        (Section~\ref{sec:remote}).
   \item \textbf{Cast}: play on a Chromecast (Section~\ref{sec:chromecast}).
   \item \textbf{Exit}: closes IPTV (and stops casting).
 \end{itemize}
 
-\subsection{Updates}
-IPTV checks for a new version when it starts. The first time, Android asks to
-allow IPTV to install apps; after that, updates install with at most one
-confirmation.
+\subsection{Language and updates}
+IPTV uses the language of your phone. It checks for a new version when it
+starts. The first time, Android asks to allow IPTV to install apps; after
+that, updates install with at most one confirmation.
 
 % ------------------------------------------------------------------ Android TV
 \section{Android TV, Google TV and Fire TV}
@@ -330,13 +264,11 @@ IPTV then appears among the TV's apps.
 
 \subsection{Remote control}
 \rowcolors{2}{gray!8}{white}
-\begin{xltabular}{\linewidth}{@{}>{\raggedright\arraybackslash}p{5.4cm}X@{}}
-\toprule
-\textbf{Button} & \textbf{What it does} \\
-\midrule
+\begin{xltabular}{\linewidth}{@{}KX@{}}
+\keyshead{Button}{What it does}
 Up / Down, Channel +/$-$, Fast-forward / Rewind & next / previous channel \\
 OK, Play/Pause, Menu & open / close the channel list \\
-Left / Right & previous / next group \\
+Left / Right & recently watched, then the groups \\
 0--9 (if your remote has them) & go to a channel number \\
 Back & close the list \\
 Info & channel information \\
@@ -397,18 +329,16 @@ Mode}. The setup is done once, on a Windows PC on the same Wi-Fi as the TV.
         IPTV, which then appears in the TV's Apps.
 \end{enumerate}
 After this, IPTV updates itself: no need to repeat the setup for new
-versions.
+versions. It uses the language of the TV.
 
 \subsection{Remote control}
 \rowcolors{2}{gray!8}{white}
-\begin{xltabular}{\linewidth}{@{}>{\raggedright\arraybackslash}p{5.4cm}X@{}}
-\toprule
-\textbf{Button} & \textbf{What it does} \\
-\midrule
+\begin{xltabular}{\linewidth}{@{}KX@{}}
+\keyshead{Button}{What it does}
 Up / Down, CH + / CH $-$ & next / previous channel \\
 0--9 & go to a channel number \\
 OK & channel list (in the list: watch the selected channel) \\
-Left / Right & previous / next group \\
+Left / Right & recently watched, then the groups \\
 PRE-CH & back to the previous channel \\
 INFO & channel information \\
 \colorkey{tvred}{Red} & add or remove a favorite \\
@@ -430,9 +360,9 @@ basic buttons.}
 
 Control IPTV from your phone, Android or iPhone, with nothing to install.
 You can browse and search every channel and tap one to watch it, and the
-remote also has favorites, channel up / down, volume, audio language and
-subtitles. It works with IPTV on a computer and on Android TV, Google TV and
-Fire TV.
+remote also has favorites, recently watched channels, channel up / down,
+volume, audio language and subtitles. It works with IPTV on a computer and
+on Android TV, Google TV and Fire TV, and it speaks your phone's language.
 
 \begin{enumerate}
   \item On a computer press \key{r}. On Android TV, Google TV or Fire TV,
@@ -472,6 +402,9 @@ phones can't connect. Only phones that know the PIN can control IPTV.}
         IPTV on private networks.
   \item[Subtitles are listed but nothing appears.] Some channels announce
         subtitles they don't actually send. Nothing is wrong with IPTV.
+  \item[IPTV is in the wrong language.] It follows the device's language
+        (on a computer, the system language). Channel names, groups and
+        country names come from the playlist and are always in English.
   \item[Something else?] Report it at
         \url{https://github.com/vickdini/iptv/issues}.
 \end{description}

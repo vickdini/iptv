@@ -65,6 +65,12 @@ impl WebCore {
             .collect()
     }
 
+    /// The language of the core's messages (the TV's: "it", "pt-BR"...).
+    #[wasm_bindgen(js_name = setLanguage)]
+    pub fn set_language(&self, code: &str) {
+        iptv_core::i18n::set_language(code);
+    }
+
     /// Every channel's logo address by index ("" when it has none).
     pub fn logos(&self) -> Vec<String> {
         self.tuner

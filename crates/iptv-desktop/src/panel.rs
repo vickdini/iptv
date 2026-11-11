@@ -4,7 +4,11 @@
 //! window aspect ratio (`res_x = 0`). The panel occupies the left `PANEL_W`
 //! units, so it keeps the same proportions at any window size.
 
-use iptv_core::{tuner::normalize, Browser, Tuner};
+use iptv_core::{
+    i18n::{t, tf},
+    tuner::normalize,
+    Browser, Tuner,
+};
 
 /// Virtual canvas height.
 pub const H: f64 = 720.0;
@@ -79,12 +83,12 @@ impl Panel {
         ev.push(rect(0.0, 0.0, PANEL_W, H, C_BG, 0x30));
         let (title, hint) = match typing {
             Some(q) => (
-                format!("Search: {q}_"),
-                "type a channel name      Enter  done      Esc  clear",
+                tf("Search: {0}", &[&format!("{q}_")]),
+                t("type a channel name      Enter  done      Esc  clear"),
             ),
             None => (
                 tuner.view_title(),
-                "/  search     c  countries     g / G  recent, groups     S  favorites",
+                t("/  search     c  countries     g / G  recent, groups     S  favorites"),
             ),
         };
         ev.push(text(PAD, 24.0, 26, C_TEXT, true, &title, PANEL_W - PAD));
@@ -100,9 +104,9 @@ impl Panel {
 
         if b.is_empty() {
             let empty = if tuner.search_text().is_some() {
-                "No channels found"
+                t("No channels found")
             } else {
-                "No channels here"
+                t("No channels here")
             };
             ev.push(text(
                 PAD,
@@ -170,11 +174,17 @@ impl Panel {
         let first = b.scroll() + 1;
         let last = (b.scroll() + ROWS).min(b.len());
         let footer = match (status, tuner.region_label()) {
-            (Some(status), _) => format!("{first}–{last} of {}     {status}…", b.len()),
-            (None, Some(region)) => format!("{first}–{last} of {}     showing: {region}", b.len()),
-            (None, None) => format!(
-                "{first}–{last} of {}     wheel scroll · click / Enter watch · Esc close",
-                b.len()
+            (Some(status), _) => tf(
+                "{0}–{1} of {2}     {3}…",
+                &[&first, &last, &b.len(), &status],
+            ),
+            (None, Some(region)) => tf(
+                "{0}–{1} of {2}     showing: {3}",
+                &[&first, &last, &b.len(), &region],
+            ),
+            (None, None) => tf(
+                "{0}–{1} of {2}     wheel scroll · click / Enter watch · Esc close",
+                &[&first, &last, &b.len()],
             ),
         };
         ev.push(text(
@@ -309,22 +319,23 @@ impl Picker {
         let b = &self.browser;
         let (countries, languages) = tuner.regions();
         let (chosen, name, other) = match self.tab {
-            PickerTab::Countries => (&countries, "Countries", "languages"),
-            PickerTab::Languages => (&languages, "Languages", "countries"),
+            PickerTab::Countries => (&countries, t("Countries"), t("languages")),
+            PickerTab::Languages => (&languages, t("Languages"), t("countries")),
         };
 
         ev.push(rect(0.0, 0.0, PANEL_W, H, C_BG, 0x30));
         let title = if self.query.is_empty() {
             match chosen.len() {
                 0 => name.to_string(),
-                n => format!("{name} · {n} chosen"),
+                n => tf("{0} · {1} chosen", &[&name, &n]),
             }
         } else {
             format!("{name}: {}_", self.query)
         };
         ev.push(text(PAD, 24.0, 26, C_TEXT, true, &title, PANEL_W - PAD));
-        let hint = format!(
-            "type to find     Enter  tick     Tab  {other}     Del  clear all     Esc  back"
+        let hint = tf(
+            "type to find     Enter  tick     Tab  {0}     Del  clear all     Esc  back",
+            &[&other],
         );
         ev.push(text(PAD, 48.0, 15, C_DIM, false, &hint, PANEL_W - PAD));
         ev.push(rect(
@@ -343,7 +354,7 @@ impl Picker {
                 20,
                 C_DIM,
                 false,
-                "Not available for this playlist",
+                t("Not available for this playlist"),
                 PANEL_W,
             ));
         } else if b.is_empty() {
@@ -353,7 +364,7 @@ impl Picker {
                 20,
                 C_DIM,
                 false,
-                "Nothing matches",
+                t("Nothing matches"),
                 PANEL_W,
             ));
         }
@@ -379,7 +390,7 @@ impl Picker {
                     20,
                     C_PLAYING,
                     true,
-                    "✕  Clear all filters (show every channel)",
+                    t("✕  Clear all filters (show every channel)"),
                     right,
                 ));
                 continue;
@@ -422,8 +433,8 @@ impl Picker {
         }
 
         let footer = match tuner.region_label() {
-            Some(region) => format!("showing channels from / in: {region}"),
-            None => "nothing chosen: showing all channels".to_string(),
+            Some(region) => tf("showing channels from / in: {0}", &[&region]),
+            None => t("nothing chosen: showing all channels").to_string(),
         };
         ev.push(text(
             PAD,
@@ -450,7 +461,7 @@ pub struct Pairing<'a> {
 }
 
 pub fn remote_card(pairing: Option<Pairing>) -> String {
-    let (x0, y0, w) = (40.0, 40.0, 660.0);
+    let (x0, y0, w) = (40.0, 40.0, 860.0); // wide enough for longer languages
     let x1 = x0 + w;
     let mut ev = Vec::new();
     let Some(Pairing {
@@ -466,7 +477,7 @@ pub fn remote_card(pairing: Option<Pairing>) -> String {
             30,
             C_TEXT,
             true,
-            "Phone remote",
+            t("Phone remote"),
             x1,
         ));
         ev.push(text(
@@ -475,7 +486,7 @@ pub fn remote_card(pairing: Option<Pairing>) -> String {
             22,
             C_DIM,
             false,
-            "This computer isn't connected to a network.",
+            t("This computer isn't connected to a network."),
             x1,
         ));
         return ev.join("\n");
@@ -492,7 +503,7 @@ pub fn remote_card(pairing: Option<Pairing>) -> String {
         30,
         C_TEXT,
         true,
-        "Phone remote",
+        t("Phone remote"),
         x1,
     ));
     let qx = x0 + (w - side) / 2.0;
@@ -521,41 +532,41 @@ pub fn remote_card(pairing: Option<Pairing>) -> String {
     ev.push(format!(
         "{{\\an7\\pos(0,0)\\bord0\\shad0\\1c&H000000&\\1a&H00&\\p1}}{path}{{\\p0}}"
     ));
-    let t = qr_y + side + 34.0;
+    let ty = qr_y + side + 34.0;
     ev.push(text(
         x0 + PAD * 2.0,
-        t,
+        ty,
         22,
         C_TEXT,
         false,
-        "Scan with your phone's camera (same Wi-Fi as this computer),",
+        t("Scan with your phone's camera (same Wi-Fi as this computer),"),
         x1 - PAD,
     ));
     ev.push(text(
         x0 + PAD * 2.0,
-        t + 36.0,
+        ty + 36.0,
         22,
         C_TEXT,
         false,
-        &format!("or open  {address}"),
+        &tf("or open  {0}", &[&address]),
         x1 - PAD,
     ));
     ev.push(text(
         x0 + PAD * 2.0,
-        t + 72.0,
+        ty + 72.0,
         22,
         C_TEXT,
         false,
-        &format!("and enter the PIN  {pin}"),
+        &tf("and enter the PIN  {0}", &[&pin]),
         x1 - PAD,
     ));
     ev.push(text(
         x0 + PAD * 2.0,
-        t + 120.0,
+        ty + 120.0,
         18,
         C_DIM,
         false,
-        "Any key closes this card. The remote keeps working.",
+        t("Any key closes this card. The remote keeps working."),
         x1 - PAD,
     ));
     ev.join("\n")
