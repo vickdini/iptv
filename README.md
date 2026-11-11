@@ -440,7 +440,9 @@ affect the app. `packaging/windows/make-icon.py` regenerates the icon.
 Releases are built by GitHub Actions ([release.yml](.github/workflows/release.yml)),
 not on a developer's PC:
 
-1. Bump `version` in the root `Cargo.toml` and commit. It is the version of
+1. Bump `version` in the root `Cargo.toml`, describe the changes in a new
+   section at the top of [`CHANGELOG.md`](CHANGELOG.md) (it becomes the
+   release notes; the release fails without it), and commit. It is the version of
    both apps (the Android `versionCode` is derived from it).
 2. Tag and push: `git tag v0.2.0 && git push origin master v0.2.0`.
 3. The workflow runs the tests, builds the Windows installer (with a pinned

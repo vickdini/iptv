@@ -51,6 +51,10 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
             exit 1
           fi
+          if ! grep -q "^## \[$version\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no section for $version (add '## [$version] - date')"
+            exit 1
+          fi
 
   windows-installer:
     needs: version
@@ -278,10 +282,26 @@ jobs:
     permissions:
       contents: write # create the release and upload files
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+
+      - name: Release notes from CHANGELOG.md
+        run: |
+          v="${{ needs.version.outputs.version }}"
+          # The lines after "## [v]" up to the next version heading.
+          awk -v v="$v" '
+            /^## \[/ { on = index($0, "## [" v "]") == 1; next }
+            /^\[[0-9]/ { on = 0 }
+            on' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+          test -s "$RUNNER_TEMP/notes.md"
 
       - name: Write checksums
         working-directory: dist
@@ -292,4 +312,4 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/notes.md
