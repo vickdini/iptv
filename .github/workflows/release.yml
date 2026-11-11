@@ -111,19 +111,18 @@ jobs:
       - name: Install mpv and packaging tools
         timeout-minutes: 15
         run: |
-          # The runner's Ubuntu mirror is sometimes unreachable (DNS failures);
-          # then use the main Ubuntu archive instead of hanging on retries.
-          opts="-o Acquire::Retries=3 -o Acquire::http::Timeout=30"
-          update() {
-            sudo apt-get update -qq $opts 2>&1 | tee "$RUNNER_TEMP/apt.log"
-            ! grep -qE "Failed to fetch|Temporary failure" "$RUNNER_TEMP/apt.log"
-          }
-          if ! update; then
-            echo "::warning::Ubuntu mirror unreachable; switching to archive.ubuntu.com"
-            echo "http://archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
-            sudo sed -i 's#http://azure.archive.ubuntu.com#http://archive.ubuntu.com#g' /etc/apt/sources.list || true
-            update || { sleep 30; update; }
+          # The runner's Ubuntu mirror sometimes can't be resolved (DNS
+          # failures), which makes apt hang. Check quickly first and, if
+          # needed, use mirrors on other domains (apt tries them in order).
+          if ! timeout 10 getent hosts azure.archive.ubuntu.com > /dev/null; then
+            echo "::warning::azure.archive.ubuntu.com unreachable; using other Ubuntu mirrors"
+            for m in http://mirrors.edge.kernel.org/ubuntu/ http://archive.ubuntu.com/ubuntu/ http://mirror.math.princeton.edu/pub/ubuntu/; do
+              echo "$m"
+            done | sudo tee /etc/apt/apt-mirrors.txt
+            sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#mirror+file:/etc/apt/apt-mirrors.txt#g' /etc/apt/sources.list || true
           fi
+          opts="-o Acquire::Retries=1 -o Acquire::http::Timeout=20"
+          sudo apt-get update -qq $opts || sudo apt-get update -qq $opts
           sudo apt-get install -y -qq $opts mpv file desktop-file-utils
 
       - name: Run tests
