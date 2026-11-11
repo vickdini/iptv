@@ -136,23 +136,44 @@ jobs:
             fi
             echo "::warning::the cached packages didn't install cleanly; downloading them"
           fi
-          # 2. From the Ubuntu servers. If the runner's mirror can't be resolved,
-          #    use mirrors on other domains (apt tries them in order).
-          if ! timeout 10 getent hosts azure.archive.ubuntu.com > /dev/null; then
-            echo "::warning::azure.archive.ubuntu.com unreachable; using other Ubuntu mirrors"
-            for m in http://mirrors.edge.kernel.org/ubuntu/ http://archive.ubuntu.com/ubuntu/ http://mirror.math.princeton.edu/pub/ubuntu/; do
-              echo "$m"
-            done | sudo tee /etc/apt/apt-mirrors.txt
-            sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#mirror+file:/etc/apt/apt-mirrors.txt#g' /etc/apt/sources.list || true
+          # 2. From an Ubuntu mirror that actually answers: each candidate must
+          #    serve a small index file within 10 s (HTTPS ones first, in case
+          #    plain HTTP is what's blocked). Only that mirror is used: the
+          #    runner's extra package sources (PPAs, Microsoft) are switched off,
+          #    so none of them can stall the download.
+          mirror=""
+          for m in http://azure.archive.ubuntu.com/ubuntu/ \
+                   https://mirrors.edge.kernel.org/ubuntu/ \
+                   https://mirror.init7.net/ubuntu/ \
+                   https://mirrors.mit.edu/ubuntu/ \
+                   https://ftp.halifax.rwth-aachen.de/ubuntu/ \
+                   https://mirrors.ocf.berkeley.edu/ubuntu/ \
+                   https://mirror.math.princeton.edu/pub/ubuntu/ \
+                   http://archive.ubuntu.com/ubuntu/; do
+            if curl -fsS -m 10 -o /dev/null "${m}dists/jammy-updates/InRelease"; then
+              mirror="$m"
+              break
+            fi
+            echo "::warning::Ubuntu mirror $m didn't answer"
+          done
+          if [ -z "$mirror" ]; then
+            echo "::error::No Ubuntu mirror is reachable from this machine"
+            exit 1
           fi
-          opts="-o Acquire::Retries=1 -o Acquire::http::Timeout=20"
-          sudo apt-get update -qq $opts || sudo apt-get update -qq $opts
+          echo "Using $mirror"
+          sudo mv /etc/apt/sources.list.d /etc/apt/sources.list.d.off
+          sudo mkdir /etc/apt/sources.list.d
+          printf 'deb %s %s main restricted universe multiverse\n' \
+            "$mirror" jammy "$mirror" jammy-updates "$mirror" jammy-security | sudo tee /etc/apt/sources.list
+          opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          sudo apt-get update -qq $opts
           sudo apt-get install -y -qq --download-only $opts mpv file desktop-file-utils
-          sudo apt-get install -y -qq $opts mpv file desktop-file-utils
-          # Keep the packages for the next builds (saved when the job succeeds).
+          # Keep the packages for the next builds (the cache is saved when the
+          # job succeeds). Copied before installing: apt may delete them after.
           mkdir -p ~/debs
           cp /var/cache/apt/archives/*.deb ~/debs/ 2>/dev/null || true
           echo "Cached $(ls ~/debs | wc -l) packages"
+          sudo apt-get install -y -qq $opts mpv file desktop-file-utils
 
       - name: Run tests
         run: cargo test -p iptv-core -p iptv-net -p iptv-desktop
