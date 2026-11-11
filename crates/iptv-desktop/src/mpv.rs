@@ -410,8 +410,11 @@ pub fn locate(explicit: Option<PathBuf>) -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Ok(me) = std::env::current_exe() {
         if let Some(dir) = me.parent() {
+            // Windows installer: mpv\mpv.exe; Linux AppImage: usr/bin/mpv.
             candidates.push(dir.join(exe));
             candidates.push(dir.join("mpv").join(exe));
+            // macOS app: IPTV.app/Contents/{MacOS/iptv, Resources/mpv.app}.
+            candidates.push(dir.join("../Resources/mpv.app/Contents/MacOS/mpv"));
         }
     }
     if let Some(path) = std::env::var_os("PATH") {

@@ -1,8 +1,9 @@
-# Builds the Windows installer and the Android APK on GitHub's machines and
-# publishes them together.
+# Builds every download on GitHub's machines and publishes them together.
 #
 # * Push a tag like `v0.2.0` (matching the version in Cargo.toml) to create a
-#   GitHub Release with IPTV-Setup-<version>.exe, IPTV-<version>.apk and
+#   GitHub Release with IPTV-Setup-<version>.exe (Windows),
+#   IPTV-<version>-x86_64.AppImage (Linux), IPTV-<version>-macOS-arm64.dmg and
+#   -x86_64.dmg (Macs), IPTV-<version>.apk (Android), the Samsung TV zip and
 #   SHA256SUMS.txt.
 # * "Run workflow" from the Actions tab builds both without releasing them
 #   (download them from the run's artifacts) - handy for testing.
@@ -27,6 +28,12 @@ env:
   MPV_URL: https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261109/mpv-x86_64-20261109-git-8bc468896e.7z
   MPV_SHA256: 7e9588d62c5b830ac2413a3a475b5588e445406e0466dd6333477e631237ec4a
   ANDROID_NDK_VERSION: 27.0.12077973
+  # Official mpv builds for Macs (https://github.com/mpv-player/mpv/releases),
+  # bundled in the .dmg files. To update: set newer URLs and their SHA-256.
+  MPV_MAC_ARM_URL: https://github.com/mpv-player/mpv/releases/download/v0.42.0/mpv-v0.42.0-macos-15-arm.zip
+  MPV_MAC_ARM_SHA256: be1b8d2445e6880860869c080b8710dee189721f1fa4689840db6a2c10d7be69
+  MPV_MAC_INTEL_URL: https://github.com/mpv-player/mpv/releases/download/v0.42.0/mpv-v0.42.0-macos-15-intel.zip
+  MPV_MAC_INTEL_SHA256: 2d2f34350ff844b6014c35f21ca142937275e19c0c673150a8564fcd2f3bfa14
 
 jobs:
   version:
@@ -81,6 +88,81 @@ jobs:
         with:
           name: windows-installer
           path: target/installer/IPTV-Setup-*.exe
+
+  linux-appimage:
+    needs: version
+    # The oldest supported system: the AppImage runs on Linux with glibc 2.35
+    # or newer (Ubuntu 22.04, Debian 12, Fedora 36 and later).
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install mpv and packaging tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mpv file desktop-file-utils
+
+      - name: Run tests
+        run: cargo test -p iptv-core -p iptv-net -p iptv-desktop
+
+      - name: Build the AppImage
+        run: packaging/linux/build-appimage.sh
+
+      - name: Smoke test
+        run: |
+          app=$(ls target/appimage/IPTV-*-x86_64.AppImage)
+          "$app" --appimage-extract-and-run --version
+          target/appimage/AppDir/usr/bin/mpv --version | head -1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: target/appimage/IPTV-*-x86_64.AppImage
+
+  macos-dmg:
+    needs: version
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test -p iptv-core -p iptv-net -p iptv-desktop
+
+      - name: Download mpv
+        run: |
+          curl -fsSL "$MPV_MAC_ARM_URL" -o mpv-arm.zip
+          curl -fsSL "$MPV_MAC_INTEL_URL" -o mpv-intel.zip
+          echo "$MPV_MAC_ARM_SHA256  mpv-arm.zip" | shasum -a 256 -c
+          echo "$MPV_MAC_INTEL_SHA256  mpv-intel.zip" | shasum -a 256 -c
+
+      - name: Build the disk images
+        run: |
+          packaging/macos/build-dmg.sh arm64 mpv-arm.zip
+          packaging/macos/build-dmg.sh x86_64 mpv-intel.zip
+
+      - name: Smoke test (Apple silicon)
+        run: |
+          app=target/macos/arm64/IPTV.app
+          "$app/Contents/MacOS/iptv" --version
+          "$app/Contents/Resources/mpv.app/Contents/MacOS/mpv" --version | head -1
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/dmg" target/macos/IPTV-*-macOS-arm64.dmg
+          ls "$RUNNER_TEMP/dmg"
+          hdiutil detach "$RUNNER_TEMP/dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: target/macos/IPTV-*.dmg
 
   android-apk:
     needs: version
@@ -191,7 +273,7 @@ jobs:
 
   publish:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [version, windows-installer, android-apk, samsung-tv]
+    needs: [version, windows-installer, linux-appimage, macos-dmg, android-apk, samsung-tv]
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the release and upload files

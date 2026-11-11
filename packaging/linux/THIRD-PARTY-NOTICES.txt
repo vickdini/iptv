@@ -1,0 +1,14 @@
+IPTV is licensed under the GNU General Public License v3 or later (LICENSE.txt).
+This AppImage bundles the following third-party software.
+
+mpv - video player engine (usr/bin/mpv)
+  Version:  @MPV_VERSION@
+  Website:  https://mpv.io
+  License:  GNU General Public License v2 or later
+  Source:   https://github.com/mpv-player/mpv
+  Built by Ubuntu (22.04 LTS "jammy"), together with FFmpeg and the other
+  libraries it is linked with (usr/lib). Their sources are available from
+  https://packages.ubuntu.com/jammy/mpv and each package's page; their
+  license terms are in usr/share/doc/<library>/copyright.
+
+mpv is run as a separate, unmodified program.

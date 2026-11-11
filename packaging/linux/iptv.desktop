@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=IPTV
+GenericName=TV player
+Comment=Watch free TV channels and zap like a TV
+Exec=iptv
+Icon=iptv
+Terminal=false
+Categories=AudioVideo;Video;Player;TV;
+Keywords=TV;IPTV;channels;live;

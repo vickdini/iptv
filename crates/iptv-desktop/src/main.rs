@@ -456,16 +456,8 @@ impl App {
     /// other languages or subtitles, say so (and how to pick them).
     async fn on_tracks(&mut self, tracks: Vec<Track>) -> Result<()> {
         self.tracks = tracks;
-        let audio = self
-            .tracks
-            .iter()
-            .filter(|t| t.kind == TrackKind::Audio)
-            .count();
-        let subs = self
-            .tracks
-            .iter()
-            .filter(|t| t.kind == TrackKind::Sub)
-            .count();
+        let audio = self.choices(TrackKind::Audio).len();
+        let subs = self.choices(TrackKind::Sub).len();
         if (audio < 2 && subs == 0) || self.hinted_seq == self.tune_seq {
             return Ok(());
         }
@@ -486,15 +478,26 @@ impl App {
         Ok(())
     }
 
+    /// The distinct tracks of a kind. Some streams list the same language
+    /// once per quality level; one entry each is enough.
+    fn choices(&self, kind: TrackKind) -> Vec<Track> {
+        let mut out: Vec<Track> = Vec::new();
+        for t in self.tracks.iter().filter(|t| t.kind == kind) {
+            match out
+                .iter_mut()
+                .find(|o| o.lang == t.lang && o.title == t.title)
+            {
+                Some(same) => same.selected |= t.selected,
+                None => out.push(t.clone()),
+            }
+        }
+        out
+    }
+
     /// `a` / `t`: switches to the next audio track, or the next subtitles
     /// (then off), and remembers the language for other channels.
     async fn cycle_track(&mut self, kind: TrackKind) -> Result<()> {
-        let list: Vec<Track> = self
-            .tracks
-            .iter()
-            .filter(|t| t.kind == kind)
-            .cloned()
-            .collect();
+        let list = self.choices(kind);
         let audio = kind == TrackKind::Audio;
         if (audio && list.len() < 2) || (!audio && list.is_empty()) {
             let msg = if audio {

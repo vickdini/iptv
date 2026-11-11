@@ -17,13 +17,14 @@ By default the app uses the public [iptv-org](https://github.com/iptv-org/iptv)
 playlist, `https://iptv-org.github.io/iptv/index.m3u` (about 11,500 channels, of
 which roughly three quarters work at any given time).
 
-Runs on Windows, Android (phones, tablets, Android TV, Google TV, Fire TV) and
-Samsung smart TVs, and can cast to Chromecast; Linux and macOS work from
-source.
+Runs on Windows, Linux, macOS, Android (phones, tablets, Android TV, Google
+TV, Fire TV) and Samsung smart TVs, and can cast to Chromecast.
 
 | Device | How to get it |
 | --- | --- |
 | Windows PC | [installer](#install-windows) |
+| Linux PC | [AppImage](#install-linux) |
+| Mac | [disk image](#install-macos) |
 | Android phone / tablet | [APK](#android) (can also cast to a Chromecast) |
 | Android TV, Chromecast with Google TV, Google TV Streamer | [APK](#android-tv-google-tv-and-fire-tv) |
 | Amazon Fire TV / Fire TV Stick | [APK](#android-tv-google-tv-and-fire-tv) |
@@ -70,6 +71,44 @@ download, compare its SHA-256 with `SHA256SUMS.txt` on the release page:
 ```powershell
 Get-FileHash IPTV-Setup-*.exe -Algorithm SHA256
 ```
+
+## Install (Linux)
+
+**[Download](https://github.com/vickdini/iptv/releases/latest)**
+`IPTV-<version>-x86_64.AppImage`: one file with everything included (the app,
+its video engine and their libraries). Make it executable and run it:
+
+```sh
+chmod +x IPTV-*-x86_64.AppImage
+./IPTV-*-x86_64.AppImage
+```
+
+Or in a file manager: *Properties → Permissions → Allow executing as a
+program*, then double-click. It runs on 64-bit Intel/AMD PCs with a Linux from
+2022 or later (glibc 2.35: Ubuntu 22.04, Debian 12, Fedora 36, Mint 21 and
+newer). Tools such as [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever)
+or AppImageLauncher add it to the applications menu. If it says FUSE is
+missing (rare), run it with `--appimage-extract-and-run`.
+
+## Install (macOS)
+
+**[Download](https://github.com/vickdini/iptv/releases/latest)** the disk
+image for your Mac (*Apple menu → About This Mac* shows the chip):
+
+* Apple silicon (M1, M2, M3, M4…): `IPTV-<version>-macOS-arm64.dmg`
+* Intel: `IPTV-<version>-macOS-x86_64.dmg`
+
+Open it and drag **IPTV** onto **Applications**. Everything is included (the
+app and its video engine).
+
+The app isn't notarized by Apple (that requires a paid developer account), so
+the first time macOS refuses to open it: *"IPTV" can't be opened / Apple could
+not verify…*. Click **Done**, then open *System Settings → Privacy & Security*,
+scroll down to *"IPTV" was blocked…* and click **Open Anyway** (then confirm).
+This is needed only once; later updates install by themselves. Like every
+download, the disk images are built from this repository's source by GitHub
+Actions, and `SHA256SUMS.txt` lists their checksums
+(`shasum -a 256 IPTV-*.dmg`).
 
 ## Android
 
@@ -330,6 +369,8 @@ Every app checks for a new release each time it starts, in the background
 | App | How it updates |
 | --- | --- |
 | Windows | Downloads the new installer, verifies its SHA-256, shows *"Updating IPTV…"*, installs it silently and restarts on the new version (a few seconds). |
+| Linux | Downloads the new AppImage, verifies it, replaces the AppImage file you run (same name and place, so shortcuts keep working) and restarts. Skipped if that folder isn't writable. |
+| macOS | Downloads the new disk image, verifies it, replaces IPTV.app with the new one and restarts. Skipped when IPTV runs straight from the disk image or Downloads (macOS runs such apps from a read-only copy): move it to Applications. |
 | Android, Google TV, Fire TV | Downloads the new APK and verifies its SHA-256 (Android also checks it is signed with the same key). The first time, Android asks to allow IPTV to install apps and to confirm the update. After that, on Android 12 and later updates install silently when you leave the app; on older versions (and Fire TV) Android shows one *"Update"* confirmation. |
 | Samsung TV | Tizen can't reinstall apps, so the installed app is a small loader that runs the newest app code it has and fetches newer code from GitHub Pages ([`vickdini.github.io/iptv/tv`](https://vickdini.github.io/iptv/tv/version.json)), then restarts into it. Works offline with the last version; a download that fails to start is discarded automatically. |
 
@@ -403,10 +444,15 @@ not on a developer's PC:
    both apps (the Android `versionCode` is derived from it).
 2. Tag and push: `git tag v0.2.0 && git push origin master v0.2.0`.
 3. The workflow runs the tests, builds the Windows installer (with a pinned
-   mpv build checked against its SHA-256), the signed Android APK and the
+   mpv build checked against its SHA-256), the Linux AppImage
+   ([`packaging/linux/build-appimage.sh`](packaging/linux/build-appimage.sh),
+   on Ubuntu 22.04 with its mpv), the two Mac disk images
+   ([`packaging/macos/build-dmg.sh`](packaging/macos/build-dmg.sh), with the
+   official mpv builds, pinned by `MPV_MAC_*`), the signed Android APK and the
    Samsung TV app, and publishes a GitHub Release with
-   `IPTV-Setup-0.2.0.exe`, `IPTV-0.2.0.apk`, `IPTV-Samsung-TV-0.2.0.zip` and
-   `SHA256SUMS.txt`. It refuses to run if the tag doesn't match
+   `IPTV-Setup-0.2.0.exe`, `IPTV-0.2.0-x86_64.AppImage`,
+   `IPTV-0.2.0-macOS-arm64.dmg`, `IPTV-0.2.0-macOS-x86_64.dmg`,
+   `IPTV-0.2.0.apk`, `IPTV-Samsung-TV-0.2.0.zip` and `SHA256SUMS.txt`. It refuses to run if the tag doesn't match
    `Cargo.toml`, and refuses to release an unsigned APK.
 
 *Actions → Release → Run workflow* builds both without publishing them
