@@ -160,6 +160,13 @@ it, then tap **Install**. The app isn't on Google Play, so Play Protect may
 show a warning for an unknown developer; choose **Install anyway**. Updates
 are installed the same way, over the previous version.
 
+Or install it with [Obtainium](https://obtainium.imranr.dev/), an app that
+installs and updates apps straight from their GitHub releases:
+
+[<img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" height="54">](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/vickdini/iptv)
+
+(Or in Obtainium: **Add app**, paste `https://github.com/vickdini/iptv`.)
+
 The APK is built and signed by GitHub Actions from this repository's source.
 Its signing certificate (`CN=IPTV, O=vickdini`) has the SHA-256 fingerprint
 `4A:40:E4:CA:75:E2:C2:5E:0A:BC:77:4B:EE:33:02:34:A3:87:1D:7D:CB:8C:FE:A7:66:A5:7A:C6:DD:34:14:61`.
