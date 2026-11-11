@@ -38,6 +38,7 @@ env:
 jobs:
   version:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
@@ -58,6 +59,7 @@ jobs:
 
   windows-installer:
     needs: version
+    timeout-minutes: 60
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -95,6 +97,7 @@ jobs:
 
   linux-appimage:
     needs: version
+    timeout-minutes: 45
     # The oldest supported system: the AppImage runs on Linux with glibc 2.35
     # or newer (Ubuntu 22.04, Debian 12, Fedora 36 and later).
     runs-on: ubuntu-22.04
@@ -106,9 +109,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install mpv and packaging tools
+        timeout-minutes: 15
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq mpv file desktop-file-utils
+          # The runner's Ubuntu mirror is sometimes unreachable (DNS failures);
+          # then use the main Ubuntu archive instead of hanging on retries.
+          opts="-o Acquire::Retries=3 -o Acquire::http::Timeout=30"
+          update() {
+            sudo apt-get update -qq $opts 2>&1 | tee "$RUNNER_TEMP/apt.log"
+            ! grep -qE "Failed to fetch|Temporary failure" "$RUNNER_TEMP/apt.log"
+          }
+          if ! update; then
+            echo "::warning::Ubuntu mirror unreachable; switching to archive.ubuntu.com"
+            echo "http://archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
+            sudo sed -i 's#http://azure.archive.ubuntu.com#http://archive.ubuntu.com#g' /etc/apt/sources.list || true
+            update || { sleep 30; update; }
+          fi
+          sudo apt-get install -y -qq $opts mpv file desktop-file-utils
 
       - name: Run tests
         run: cargo test -p iptv-core -p iptv-net -p iptv-desktop
@@ -129,6 +145,7 @@ jobs:
 
   macos-dmg:
     needs: version
+    timeout-minutes: 60
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -170,6 +187,7 @@ jobs:
 
   android-apk:
     needs: version
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -232,6 +250,7 @@ jobs:
 
   samsung-tv:
     needs: version
+    timeout-minutes: 45
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
