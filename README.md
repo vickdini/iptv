@@ -20,6 +20,9 @@ which roughly three quarters work at any given time).
 Runs on Windows, Linux, macOS, Android (phones, tablets, Android TV, Google
 TV, Fire TV) and Samsung smart TVs, and can cast to Chromecast.
 
+A printable **[quick start guide](docs/quick-start/IPTV-Quick-Start.pdf)** (PDF)
+explains installing and using IPTV on every platform.
+
 | Device | How to get it |
 | --- | --- |
 | Windows PC | [installer](#install-windows) |

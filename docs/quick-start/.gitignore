@@ -1,0 +1,7 @@
+# LaTeX build leftovers (the PDF itself is kept).
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+build.log
