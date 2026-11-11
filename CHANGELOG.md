@@ -6,7 +6,7 @@ What's new in each version of IPTV. Downloads for every version are on the
 When releasing, add a section for the new version at the top. The release
 workflow uses that section as the release notes.
 
-## [Unreleased]
+## [0.9.0] - 2026-11-11
 
 ### Added
 - **Phone remote:** control IPTV from your phone's browser, on Android or
@@ -18,6 +18,8 @@ workflow uses that section as the release notes.
     channel list.
   - The remote works on your home Wi-Fi only, and phones need the PIN shown
     on the TV.
+- **Quick start guide:** a printable PDF explaining how to install and use
+  IPTV on every platform (linked from the README).
 
 ## [0.8.0] - 2026-11-11
 
@@ -138,6 +140,7 @@ First release, for Windows.
 - **GPL-3.0-or-later license**, plus a disclaimer that the app only loads a
   publicly available playlist.
 
+[0.9.0]: https://github.com/vickdini/iptv/releases/tag/v0.9.0
 [0.8.0]: https://github.com/vickdini/iptv/releases/tag/v0.8.0
 [0.7.0]: https://github.com/vickdini/iptv/releases/tag/v0.7.0
 [0.6.0]: https://github.com/vickdini/iptv/releases/tag/v0.6.0
