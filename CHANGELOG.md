@@ -6,6 +6,23 @@ What's new in each version of IPTV. Downloads for every version are on the
 When releasing, add a section for the new version at the top. The release
 workflow uses that section as the release notes.
 
+## [0.14.0] - 2026-11-21
+
+### Added
+- **TV guide:** desktop and Android show Now / Next in the channel list and
+  channel info when an XMLTV feed is configured.
+- **Pinned channel numbers:** keep your preferred channel numbers across
+  playlist refreshes.
+- **Unavailable channels:** open the list of hidden channels and select one
+  to retry playback.
+
+### Changed
+- **Playback recovery:** desktop and Android retry failed or stalled streams
+  and can try a recently verified alternate. On-screen messages show playback
+  status.
+- **Channel restoration:** favorites, recents, and the last-watched channel
+  can follow a changed stream URL when its playlist ID uniquely identifies it.
+
 ## [0.13.0] - 2026-11-11
 
 ### Changed
@@ -193,6 +210,7 @@ First release, for Windows.
 - **GPL-3.0-or-later license**, plus a disclaimer that the app only loads a
   publicly available playlist.
 
+[0.14.0]: https://github.com/vickdini/iptv/releases/tag/v0.14.0
 [0.13.0]: https://github.com/vickdini/iptv/releases/tag/v0.13.0
 [0.12.0]: https://github.com/vickdini/iptv/releases/tag/v0.12.0
 [0.11.0]: https://github.com/vickdini/iptv/releases/tag/v0.11.0
