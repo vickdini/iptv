@@ -44,4 +44,14 @@
     <string name="regions_hint">Affiche les chaînes de n\'importe quel pays choisi ou dans n\'importe quelle langue choisie.</string>
     <string name="update_ready">IPTV %1$s est disponible — installation de la mise à jour…</string>
     <string name="casting">Lecture sur votre TV (Chromecast)</string>
+    <string name="channel_options">Options de chaîne</string>
+    <string name="pin_channel_number">Fixer ou libérer le numéro de la chaîne actuelle</string>
+    <string name="unavailable_channels">Afficher ou masquer les chaînes indisponibles</string>
+    <string name="tv_guide">Guide TV</string>
+    <string name="tv_guide_url">URL du flux XMLTV</string>
+    <string name="tv_guide_load">Charger le guide</string>
+    <string name="tv_guide_remove">Retirer le guide</string>
+    <string name="tv_guide_failed">Impossible de charger le guide TV. Vérifiez l’URL XMLTV.</string>
+    <string name="tv_guide_loaded">Guide TV chargé</string>
+    <string name="stream_buffering">Mise en mémoire tampon…</string>
 </resources>

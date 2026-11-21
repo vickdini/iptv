@@ -504,7 +504,7 @@ function showMore() {
       ? '<img class="logo" loading="lazy" alt="" referrerpolicy="no-referrer" src="' + escapeHtml(it[3]) +
         '" onerror="this.style.visibility=\'hidden\'">'
       : '<span class="logo"></span>';
-    li.innerHTML = '<button class="pick" data-idx="' + it[0] + '"><span class="n">' + (it[0] + 1) +
+    li.innerHTML = '<button class="pick" data-idx="' + it[0] + '"><span class="n">' + (it[4] ?? it[0] + 1) +
       '</span>' + logo + '<span class="t">' + escapeHtml(it[1]) + '</span></button>' +
       '<button class="star' + (it[2] ? ' on' : '') + '" data-fav="' + it[0] + '" aria-label="Favorite" aria-pressed="' + it[2] + '">' +
       (it[2] ? '★' : '☆') + '</button>';

@@ -91,6 +91,70 @@ pub fn help() -> &'static str {
 
 /// English -> [Italian, Spanish, French, German, Portuguese].
 const TABLE: &[(&str, [&str; 5])] = &[
+    // --- playback and programme guide
+    ("Buffering…", [
+        "Caricamento del flusso…",
+        "Cargando la emisión…",
+        "Mise en mémoire tampon…",
+        "Stream wird gepuffert…",
+        "A carregar a emissão…",
+    ]),
+    ("Retrying stream…", [
+        "Nuovo tentativo di riproduzione…",
+        "Reintentando la reproducción…",
+        "Nouvelle tentative de lecture…",
+        "Wiedergabe wird erneut versucht…",
+        "A tentar reproduzir novamente…",
+    ]),
+    ("Trying alternate stream…", [
+        "Tentativo con un flusso alternativo…",
+        "Probando una emisión alternativa…",
+        "Essai d’un autre flux…",
+        "Alternativer Stream wird versucht…",
+        "A tentar uma emissão alternativa…",
+    ]),
+    ("Stream unavailable. Use the unavailable channels list to retry.", [
+        "Flusso non disponibile. Riprova dall’elenco dei canali non disponibili.",
+        "Emisión no disponible. Reinténtalo desde la lista de canales no disponibles.",
+        "Flux indisponible. Réessayez depuis la liste des chaînes indisponibles.",
+        "Stream nicht verfügbar. Versuche es erneut über die Liste nicht verfügbarer Sender.",
+        "Emissão indisponível. Tente novamente na lista de canais indisponíveis.",
+    ]),
+    ("Unavailable channels", [
+        "Canali non disponibili",
+        "Canales no disponibles",
+        "Chaînes indisponibles",
+        "Nicht verfügbare Sender",
+        "Canais indisponíveis",
+    ]),
+    ("Channel number pinned", [
+        "Numero del canale fissato",
+        "Número de canal fijado",
+        "Numéro de chaîne fixé",
+        "Sendernummer fixiert",
+        "Número do canal fixado",
+    ]),
+    ("Channel number unpinned", [
+        "Numero del canale sbloccato",
+        "Número de canal liberado",
+        "Numéro de chaîne libéré",
+        "Sendernummer freigegeben",
+        "Número do canal libertado",
+    ]),
+    ("Now: {0}", [
+        "Ora: {0}",
+        "Ahora: {0}",
+        "En cours : {0}",
+        "Jetzt: {0}",
+        "Agora: {0}",
+    ]),
+    ("Next: {0}", [
+        "Dopo: {0}",
+        "Después: {0}",
+        "À suivre : {0}",
+        "Danach: {0}",
+        "A seguir: {0}",
+    ]),
     // --- core: zapping and lists
     ("No working channels in this view", [
         "Nessun canale funzionante in questa vista",

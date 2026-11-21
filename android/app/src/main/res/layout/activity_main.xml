@@ -138,6 +138,12 @@
                 android:textStyle="bold" />
 
             <TextView
+                android:id="@+id/channelOptions"
+                style="@style/PanelButton"
+                android:contentDescription="@string/channel_options"
+                android:text="⋮" />
+
+            <TextView
                 android:id="@+id/groupPrev"
                 style="@style/PanelButton"
                 android:contentDescription="@string/group_prev"

@@ -76,7 +76,20 @@ pub fn with<T>(f: impl FnOnce(&mut App) -> Result<T>) -> Result<T> {
     f(app)
 }
 
+pub fn load_guide(source: &str) -> Result<String> {
+    let guide = if source.is_empty() {
+        iptv_net::guide::Guide::default()
+    } else {
+        iptv_net::guide::Guide::load(source)?
+    };
+    with(|app| {
+        app.guide = guide;
+        Ok("{}".into())
+    })
+}
+
 pub struct App {
+    guide: iptv_net::guide::Guide,
     tuner: Tuner,
     health: HealthCache,
     config_dir: PathBuf,
@@ -145,6 +158,7 @@ impl App {
         }
 
         Self {
+            guide: iptv_net::guide::Guide::default(),
             tuner,
             health,
             config_dir,
@@ -170,7 +184,15 @@ impl App {
         };
         match action {
             Some(a) => {
-                let fx = self.tuner.handle(a);
+                let mut fx = self.tuner.handle(a);
+                if a == Action::Info {
+                    let summary = self.guide.summary(self.tuner.current_channel(), "\n");
+                    if let Some(Effect::Osd { text, .. }) = fx.first_mut() {
+                        if !summary.is_empty() {
+                            text.insert_str(0, &format!("{summary}\n"));
+                        }
+                    }
+                }
                 self.effects(fx)
             }
             None => "[]".into(),
@@ -193,9 +215,14 @@ impl App {
         if seq != self.tune_seq {
             return "[]".into();
         }
+        let idx = self.tuner.current();
         let url = self.tuner.current_channel().url.clone();
-        self.health.record(&url, false);
-        let fx = self.tuner.current_failed();
+        let fx = self
+            .tuner
+            .recover(|ch| self.health.get(&ch.url) == Some((true, true)));
+        if self.tuner.is_dead(idx) {
+            self.health.record(&url, false);
+        }
         self.effects(fx)
     }
 
@@ -206,7 +233,7 @@ impl App {
         let cur = self.tuner.current();
         let url = self.tuner.current_channel().url.clone();
         self.health.record(&url, true);
-        self.tuner.set_dead(cur, false);
+        self.tuner.playback_started(cur);
     }
 
     /// Merges finished background checks. `changed` tells the UI to refresh
@@ -216,6 +243,9 @@ impl App {
         let mut changed = false;
         for r in results {
             self.check_done += 1;
+            if self.tuner.failed_during_playback(r.idx) {
+                continue;
+            }
             let url = self.tuner.channels()[r.idx].url.clone();
             match r.probe {
                 Probe::Ok => {
@@ -263,7 +293,7 @@ impl App {
         };
         json!({
             "idx": idx,
-            "number": idx + 1,
+            "number": self.tuner.number(idx),
             "name": ch.name,
             "url": ch.url,
             "userAgent": ch.user_agent.as_deref().unwrap_or(DEFAULT_USER_AGENT),
@@ -373,11 +403,26 @@ impl App {
     }
 
     /// Small header for the channel list: `{"title","status","current"}`.
+    pub fn guide_summary(&self, idx: usize) -> String {
+        self.tuner
+            .channels()
+            .get(idx)
+            .map(|channel| self.guide.summary(channel, "\n"))
+            .unwrap_or_default()
+    }
+
+    pub fn channel_numbers(&self) -> Vec<i32> {
+        (0..self.tuner.channels().len())
+            .map(|idx| self.tuner.number(idx) as i32)
+            .collect()
+    }
+
     pub fn list_info(&self) -> String {
         json!({
             "title": self.tuner.view_title(),
             "current": self.tuner.current(),
             "status": self.status(),
+            "unavailable": self.tuner.showing_unavailable(),
         })
         .to_string()
     }
@@ -471,7 +516,7 @@ impl App {
                         "type": "tune",
                         "seq": self.tune_seq,
                         "idx": idx,
-                        "number": idx + 1,
+                        "number": self.tuner.number(idx),
                         "name": ch.name,
                         "url": ch.url,
                         "userAgent": ch.user_agent.as_deref().unwrap_or(DEFAULT_USER_AGENT),
@@ -581,7 +626,10 @@ mod tests {
         a.start(); // seq 1, channel 0
         a.action("up", None); // seq 2, channel 1
         assert_eq!(a.playback_failed(1), "[]"); // stale
-        let fx = parse(&a.playback_failed(2));
+        let retry = parse(&a.playback_failed(2));
+        assert_eq!(retry[0]["idx"], 1);
+        assert_eq!(a.playback_failed(2), "[]");
+        let fx = parse(&a.playback_failed(3));
         assert_eq!(fx[0]["idx"], 2);
         assert_eq!(a.view_indices(), vec![0, 2, 3, 4]);
         let info: Value = serde_json::from_str(&a.list_info()).unwrap();

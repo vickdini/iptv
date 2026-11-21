@@ -2,6 +2,7 @@
 //! download with conditional requests + local copy, and background channel
 //! health checks. Callers pass the directory to store data in.
 
+pub mod guide;
 pub mod health;
 pub mod logo;
 pub mod playlist;

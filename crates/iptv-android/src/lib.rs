@@ -73,6 +73,16 @@ export!(
     }
 );
 
+export!(
+    Java_io_github_vickdini_iptv_Core_loadGuide,
+    |env, source: JString<'l>| { app::load_guide(&string(env, &source)?.unwrap_or_default()) }
+);
+
+export!(
+    Java_io_github_vickdini_iptv_Core_guideSummary,
+    |_env, idx: jint| { app::with(|a| Ok(a.guide_summary(idx as usize))) }
+);
+
 // start(): effects
 export!(Java_io_github_vickdini_iptv_Core_start, |_env| app::with(
     |a| Ok(a.start())
@@ -334,6 +344,18 @@ pub extern "system" fn Java_io_github_vickdini_iptv_Core_view<'l>(
     call_obj(&mut env, |env| {
         let v = app::with(|a| Ok(a.view_indices()))?;
         int_array(env, &v)
+    })
+}
+
+/// channelNumbers(): IntArray -- displayed numbers by playlist index.
+#[no_mangle]
+pub extern "system" fn Java_io_github_vickdini_iptv_Core_channelNumbers<'l>(
+    mut env: JNIEnv<'l>,
+    _class: JClass<'l>,
+) -> jintArray {
+    call_obj(&mut env, |env| {
+        let numbers = app::with(|a| Ok(a.channel_numbers()))?;
+        int_array(env, &numbers)
     })
 }
 

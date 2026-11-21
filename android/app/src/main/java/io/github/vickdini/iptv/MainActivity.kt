@@ -106,6 +106,12 @@ class MainActivity : AppCompatActivity() {
         var forward = true
         var fails = 0
         val hideLabel = Runnable { label.visibility = View.GONE }
+        val bufferingTimeout = Runnable {
+            if (loaded && !casting && exo.playbackState == Player.STATE_BUFFERING) {
+                exo.stop()
+                paneFailed(this)
+            }
+        }
     }
 
     private lateinit var panes: Array<Pane>
@@ -204,6 +210,11 @@ class MainActivity : AppCompatActivity() {
     private val pollTask = object : Runnable {
         override fun run() {
             poll()
+            val now = SystemClock.uptimeMillis()
+            if (adapter.showGuide && panel.visibility == View.VISIBLE && now - lastGuideRefresh >= 30_000) {
+                lastGuideRefresh = now
+                refreshList(keepPosition = true)
+            }
             handler.postDelayed(this, 1000)
         }
     }
@@ -237,7 +248,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         adapter = ChannelAdapter(
-            onClick = { idx -> perform(Core.tuneTo(idx)) },
+            onClick = { idx ->
+                perform(Core.tuneTo(idx))
+                if (showingUnavailable) {
+                    refreshList(keepPosition = false)
+                }
+            },
             onLongClick = { idx ->
                 perform(Core.toggleFavorite(idx))
                 refreshList(keepPosition = true)
@@ -246,6 +262,7 @@ class MainActivity : AppCompatActivity() {
         list.layoutManager = LinearLayoutManager(this)
         list.adapter = adapter
         list.itemAnimator = null
+        findViewById<View>(R.id.channelOptions).setOnClickListener { channelOptions() }
         findViewById<View>(R.id.groupPrev).setOnClickListener { panelAction("group-prev") }
         findViewById<View>(R.id.groupNext).setOnClickListener { panelAction("group-next") }
         findViewById<View>(R.id.favOnly).apply {
@@ -310,6 +327,8 @@ class MainActivity : AppCompatActivity() {
                     adapter.logos = logos
                     status.visibility = View.GONE
                     loaded = true
+                    readChannelNumbers()
+                    guidePreferences.getString("source", null)?.let { loadGuide(it, report = false) }
                     setSearchText(Core.searchText())
                     perform(Core.start())
                     updateLayout()
@@ -353,6 +372,82 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "action $name ${arg ?: ""} (loaded=$loaded)")
         if (!loaded) return
         digitsPending = perform(Core.action(name, arg))
+    }
+
+    private val guidePreferences by lazy { getSharedPreferences("tv_guide", MODE_PRIVATE) }
+    private var showingUnavailable = false
+    private var lastGuideRefresh = 0L
+    private val guideRefresh = Runnable {
+        guidePreferences.getString("source", null)?.let { loadGuide(it, report = false) }
+    }
+
+    private fun readChannelNumbers() {
+        adapter.numbers = Core.channelNumbers()
+    }
+
+    private fun channelOptions() {
+        if (!loaded) return
+        val choices = arrayOf(
+            getString(R.string.tv_guide),
+            getString(R.string.unavailable_channels),
+            getString(R.string.pin_channel_number),
+        )
+        AlertDialog.Builder(this).setTitle(R.string.channel_options).setItems(choices) { _, item ->
+            when (item) {
+                0 -> editGuide()
+                1 -> panelAction("unavailable")
+                2 -> {
+                    tvAction("pin-number")
+                    readChannelNumbers()
+                    refreshList(keepPosition = true)
+                }
+            }
+        }.show()
+    }
+
+    private fun editGuide() {
+        val field = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_URI
+            setSingleLine()
+            hint = getString(R.string.tv_guide_url)
+            setText(guidePreferences.getString("source", ""))
+        }
+        AlertDialog.Builder(this).setTitle(R.string.tv_guide).setView(field)
+            .setPositiveButton(R.string.tv_guide_load) { _, _ ->
+                val source = field.text.toString().trim()
+                if (source.startsWith("https://") || source.startsWith("http://")) {
+                    loadGuide(source, report = true)
+                } else {
+                    showOsd(getString(R.string.tv_guide_failed), 5000)
+                }
+            }
+            .setNeutralButton(R.string.tv_guide_remove) { _, _ -> loadGuide("", report = true) }
+            .setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    private fun loadGuide(source: String, report: Boolean) {
+        handler.removeCallbacks(guideRefresh)
+        io.execute {
+            val result = runCatching { Core.loadGuide(source) }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                result.onSuccess {
+                    if (report) {
+                        guidePreferences.edit().putString("source", source.takeIf { it.isNotEmpty() }).apply()
+                    }
+                    adapter.showGuide = source.isNotEmpty()
+                    if (panel.visibility == View.VISIBLE) refreshList(keepPosition = true)
+                    if (report && source.isNotEmpty()) showOsd(getString(R.string.tv_guide_loaded), 3000)
+                }.onFailure {
+                    if (report) showOsd(getString(R.string.tv_guide_failed), 5000)
+                }
+                handler.removeCallbacks(guideRefresh)
+                if (!guidePreferences.getString("source", null).isNullOrEmpty()) {
+                    handler.postDelayed(guideRefresh, 6 * 60 * 60 * 1000L)
+                }
+            }
+        }
     }
 
     private fun tune(e: JSONObject) {
@@ -433,6 +528,7 @@ class MainActivity : AppCompatActivity() {
     /** Events of one pane's player. Only the active pane reports to the core. */
     private fun paneListener(pane: Pane) = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
+            if (casting) return
             val tune = pane.tune ?: return
             // URLs without an .m3u8 extension may still be HLS: retry once as HLS.
             if (!pane.triedHls && error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED) {
@@ -440,14 +536,23 @@ class MainActivity : AppCompatActivity() {
                 startStream(pane, tune, forceHls = true)
                 return
             }
-            if (pane === panes[active]) perform(Core.playbackFailed(currentSeq))
-            else if (split && ++pane.fails < 20) zapOther(pane.forward) // quietly try the next one
+            paneFailed(pane)
         }
 
         override fun onPlaybackStateChanged(state: Int) {
-            if (state != Player.STATE_READY) return
-            pane.fails = 0
-            if (pane === panes[active]) Core.playbackStarted(currentSeq)
+            handler.removeCallbacks(pane.bufferingTimeout)
+            if (casting || pane.tune == null) return
+            when (state) {
+                Player.STATE_BUFFERING -> {
+                    handler.postDelayed(pane.bufferingTimeout, 20_000)
+                    if (pane === panes[active]) showOsd(getString(R.string.stream_buffering), 3000)
+                }
+                Player.STATE_READY -> {
+                    pane.fails = 0
+                    if (pane === panes[active]) Core.playbackStarted(currentSeq)
+                }
+                Player.STATE_ENDED -> paneFailed(pane)
+            }
         }
 
         override fun onTracksChanged(tracks: Tracks) {
@@ -456,6 +561,16 @@ class MainActivity : AppCompatActivity() {
 
         override fun onVideoSizeChanged(videoSize: VideoSize) {
             if (pane === panes[active]) updatePip()
+        }
+    }
+
+    private fun paneFailed(pane: Pane) {
+        handler.removeCallbacks(pane.bufferingTimeout)
+        if (pane === panes[active]) {
+            perform(Core.playbackFailed(currentSeq))
+            if (panel.visibility == View.VISIBLE) refreshList(keepPosition = true)
+        } else if (split && ++pane.fails < 20) {
+            zapOther(pane.forward)
         }
     }
 
@@ -670,6 +785,7 @@ class MainActivity : AppCompatActivity() {
     private fun refreshList(keepPosition: Boolean, toFirst: Boolean = false) {
         val t0 = System.nanoTime()
         val info = JSONObject(Core.listInfo())
+        showingUnavailable = info.optBoolean("unavailable")
         panelTitle.text = info.getString("title")
         panelStatus.text = if (info.isNull("status")) getString(R.string.panel_hint) else info.getString("status")
         val lm = list.layoutManager as LinearLayoutManager
@@ -1284,7 +1400,11 @@ class MainActivity : AppCompatActivity() {
         PlaybackService.stop(this)
         PlaybackService.session = null
         session?.release()
-        panes.forEach { it.exo.release() }
+        handler.removeCallbacks(guideRefresh)
+        panes.forEach {
+            handler.removeCallbacks(it.bufferingTimeout)
+            it.exo.release()
+        }
         runCatching { unregisterReceiver(pipReceiver) }
         castPlayer?.release()
         io.shutdown()

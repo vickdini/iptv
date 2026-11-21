@@ -76,7 +76,13 @@ impl Panel {
 
     /// `status` (e.g. "checking channels 40%") replaces the footer hints.
     /// `typing`: the search being typed (shown with a cursor), if any.
-    pub fn render(&self, tuner: &Tuner, status: Option<&str>, typing: Option<&str>) -> String {
+    pub fn render(
+        &self,
+        tuner: &Tuner,
+        status: Option<&str>,
+        typing: Option<&str>,
+        guide: &iptv_net::guide::Guide,
+    ) -> String {
         let mut ev: Vec<String> = Vec::new();
         let b = &self.browser;
 
@@ -139,7 +145,7 @@ impl Panel {
             ev.push(format!(
                 "{{\\an6\\pos({},{mid})\\fs18\\bord0\\shad0\\1c&H{C_DIM}&}}{}",
                 PAD + NUM_W,
-                ch + 1
+                tuner.number(ch)
             ));
             let mut name = String::new();
             if playing {
@@ -149,7 +155,32 @@ impl Panel {
             if tuner.is_favorite(ch) {
                 name.push_str("  ★");
             }
-            ev.push(text(name_x, mid, 20, color, playing, &name, name_right));
+            let [now, next] = guide.labels(&tuner.channels()[ch]);
+            if now.is_none() && next.is_none() {
+                ev.push(text(name_x, mid, 20, color, playing, &name, name_right));
+            } else {
+                ev.push(text(
+                    name_x,
+                    mid - 7.0,
+                    16,
+                    color,
+                    playing,
+                    &name,
+                    name_right,
+                ));
+                let status_y = mid + 8.0;
+                match (now, next) {
+                    (Some(now), Some(next)) => {
+                        let split = (name_x + name_right) / 2.0;
+                        ev.push(text(name_x, status_y, 12, C_DIM, false, &now, split - 6.0));
+                        ev.push(text(split, status_y, 12, C_DIM, false, &next, name_right));
+                    }
+                    (Some(label), None) | (None, Some(label)) => {
+                        ev.push(text(name_x, status_y, 12, C_DIM, false, &label, name_right));
+                    }
+                    (None, None) => {}
+                }
+            }
         }
 
         // Scrollbar.

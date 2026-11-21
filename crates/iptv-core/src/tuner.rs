@@ -1,12 +1,12 @@
 //! A TV-like channel tuner.
 //!
-//! Channels are numbered by their position in the playlist (1-based), just
-//! like the channel numbers on a TV. The tuner is a pure state machine: the
+//! Channel numbers default to their position in the playlist (1-based).
+//! The tuner is a pure state machine: the
 //! front-end feeds it [`Action`]s (remote-control buttons) and executes the
 //! returned [`Effect`]s (tune the player, show an on-screen message, persist
 //! state, arm the number-entry timer).
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
@@ -36,6 +36,8 @@ pub enum Action {
     /// Jump back to the previously watched channel.
     Previous,
     Info,
+    PinNumber,
+    ToggleUnavailable,
     NextGroup,
     PrevGroup,
     ToggleFavorite,
@@ -55,6 +57,8 @@ impl Action {
             "ok" => Self::Confirm,
             "prev" => Self::Previous,
             "info" => Self::Info,
+            "pin-number" => Self::PinNumber,
+            "unavailable" => Self::ToggleUnavailable,
             "group-next" => Self::NextGroup,
             "group-prev" => Self::PrevGroup,
             "fav" => Self::ToggleFavorite,
@@ -100,12 +104,15 @@ pub fn normalize(s: &str) -> String {
         .collect()
 }
 
-/// What survives a restart. Channels are identified by URL so favorites
-/// survive playlist reordering.
+/// What survives a restart, including metadata for streams whose URLs change.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SavedState {
     pub last_url: Option<String>,
     pub last_index: usize,
+    #[serde(default)]
+    pub channel_ids: BTreeMap<String, String>,
+    #[serde(default)]
+    pub pinned_numbers: BTreeMap<usize, String>,
     #[serde(default)]
     pub favorites: Vec<String>,
     /// Recently watched channels (stream URLs), most recent first.
@@ -132,12 +139,21 @@ pub struct SavedState {
 
 pub struct Tuner {
     channels: Vec<Channel>,
+    index_by_url: HashMap<String, usize>,
     groups: Vec<String>,
     /// Channels known not to work; hidden from zapping and lists.
     dead: Vec<bool>,
+    playback_failures: HashSet<usize>,
     /// Direction of the last zap, used to skip past failing channels.
     forward: bool,
     current: usize,
+    numbers: Vec<usize>,
+    by_number: Vec<usize>,
+    pins: BTreeMap<usize, String>,
+    channel_ids: BTreeMap<String, String>,
+    retried: bool,
+    tried_alternate: bool,
+    show_unavailable: bool,
     previous: Option<usize>,
     digits: String,
     max_digits: usize,
@@ -173,33 +189,76 @@ impl Tuner {
             .collect();
         groups.sort_by_key(|g| g.to_lowercase());
 
+        let mut index_by_url = HashMap::new();
+        let mut by_id = HashMap::new();
+        for (idx, ch) in channels.iter().enumerate() {
+            index_by_url.entry(ch.url.clone()).or_insert(idx);
+            if let Some(id) = &ch.tvg_id {
+                by_id
+                    .entry(id.as_str())
+                    .and_modify(|entry| *entry = None)
+                    .or_insert(Some(idx));
+            }
+        }
+        let resolve = |url: &str| {
+            index_by_url.get(url).copied().or_else(|| {
+                let id = state.channel_ids.get(url)?;
+                by_id.get(id.as_str()).copied().flatten()
+            })
+        };
+        let remap = |url: &String| {
+            resolve(url)
+                .map(|idx| channels[idx].url.clone())
+                .unwrap_or_else(|| url.clone())
+        };
         let current = state
             .last_url
             .as_ref()
-            .and_then(|url| channels.iter().position(|c| &c.url == url))
+            .and_then(|url| resolve(url))
             .unwrap_or(state.last_index.min(channels.len() - 1));
+        let favorites = state.favorites.iter().map(remap).collect();
+        let mut recent: Vec<_> = state.recent.iter().map(remap).collect();
+        let mut seen = HashSet::new();
+        recent.retain(|url| seen.insert(url.clone()));
+        recent.truncate(RECENT_MAX);
+        let pins = state
+            .pinned_numbers
+            .iter()
+            .map(|(&n, url)| (n, remap(url)))
+            .collect();
 
-        Some(Self {
+        let mut tuner = Self {
             search_names: channels.iter().map(|c| normalize(&c.name)).collect(),
             search_text: String::new(),
             search_words: Vec::new(),
             max_digits: channels.len().to_string().len(),
             dead: vec![false; channels.len()],
+            playback_failures: HashSet::new(),
             forward: true,
             channels,
+            index_by_url,
             groups,
             current,
+            numbers: Vec::new(),
+            by_number: Vec::new(),
+            pins,
+            channel_ids: state.channel_ids.clone(),
+            retried: false,
+            tried_alternate: false,
+            show_unavailable: false,
             previous: None,
             digits: String::new(),
             filter: Filter::All,
-            favorites: state.favorites.iter().cloned().collect(),
-            recent: state.recent.iter().take(RECENT_MAX).cloned().collect(),
+            favorites,
+            recent,
             region_countries: state.countries.iter().cloned().collect(),
             region_languages: state.languages.iter().cloned().collect(),
             audio_language: state.audio_language.clone(),
             subtitle_language: state.subtitle_language.clone(),
             remote_pin: state.remote_pin.clone(),
-        })
+        };
+        tuner.assign_numbers();
+        Some(tuner)
     }
 
     pub fn channels(&self) -> &[Channel] {
@@ -211,8 +270,109 @@ impl Tuner {
     pub fn current(&self) -> usize {
         self.current
     }
+    pub fn showing_unavailable(&self) -> bool {
+        self.show_unavailable
+    }
     pub fn current_channel(&self) -> &Channel {
         &self.channels[self.current]
+    }
+
+    pub fn number(&self, idx: usize) -> usize {
+        self.numbers[idx]
+    }
+
+    pub fn index_for_number(&self, number: usize) -> Option<usize> {
+        self.by_number.get(number.checked_sub(1)?).copied()
+    }
+
+    fn assign_numbers(&mut self) {
+        self.by_number = vec![usize::MAX; self.channels.len()];
+        self.numbers = vec![0; self.channels.len()];
+        for (&number, url) in &self.pins {
+            if let Some((&idx, slot)) = self.index_by_url.get(url).zip(
+                number
+                    .checked_sub(1)
+                    .and_then(|n| self.by_number.get_mut(n)),
+            ) {
+                if self.numbers[idx] == 0 {
+                    *slot = idx;
+                    self.numbers[idx] = number;
+                }
+            }
+        }
+        for (idx, number) in self.numbers.iter_mut().enumerate() {
+            if *number == 0 && self.by_number[idx] == usize::MAX {
+                self.by_number[idx] = idx;
+                *number = idx + 1;
+            }
+        }
+        let mut vacant = self
+            .by_number
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, idx)| **idx == usize::MAX);
+        for (idx, number) in self
+            .numbers
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, n)| **n == 0)
+        {
+            if let Some((slot, entry)) = vacant.next() {
+                *entry = idx;
+                *number = slot + 1;
+            }
+        }
+    }
+
+    /// Retry the current stream once, then try one recently verified variant.
+    pub fn recover(&mut self, verified: impl Fn(&Channel) -> bool) -> Vec<Effect> {
+        if !self.retried {
+            self.retried = true;
+            return vec![Effect::Tune(self.current), self.osd(t("Retrying stream…"))];
+        }
+        let failed = self.current;
+        let id = self.channels[failed]
+            .tvg_id
+            .as_deref()
+            .map(crate::m3u::station_id);
+        let alternate = id.filter(|_| !self.tried_alternate).and_then(|id| {
+            self.channels.iter().enumerate().position(|(idx, ch)| {
+                idx != failed
+                    && !self.dead[idx]
+                    && ch.url != self.channels[failed].url
+                    && ch.tvg_id.as_deref().map(crate::m3u::station_id) == Some(id)
+                    && verified(ch)
+            })
+        });
+        let mut effects = if let Some(idx) = alternate {
+            self.dead[failed] = true;
+            self.playback_failures.insert(failed);
+            let previous = self.previous;
+            let effects = self.tune(idx);
+            self.previous = previous.filter(|&p| p != idx && !self.dead[p]);
+            self.retried = true;
+            self.tried_alternate = true;
+            effects
+        } else {
+            let next = self.ordered_after(failed, self.forward).find(|&idx| {
+                idx != failed
+                    && self.matches(idx)
+                    && id.is_none_or(|id| {
+                        self.channels[idx]
+                            .tvg_id
+                            .as_deref()
+                            .map(crate::m3u::station_id)
+                            != Some(id)
+                    })
+            });
+            self.hide_failed_and_advance(next)
+        };
+        effects.push(self.osd(if alternate.is_some() {
+            t("Trying alternate stream…")
+        } else {
+            t("Stream unavailable. Use the unavailable channels list to retry.")
+        }));
+        effects
     }
     pub fn filter(&self) -> Filter {
         self.filter
@@ -225,9 +385,29 @@ impl Tuner {
         let mut favorites: Vec<String> = self.favorites.iter().cloned().collect();
         favorites.sort();
         let (countries, languages) = self.regions();
+        let tracked: HashSet<_> = self
+            .favorites
+            .iter()
+            .chain(&self.recent)
+            .chain(self.pins.values())
+            .chain(std::iter::once(&self.current_channel().url))
+            .collect();
+        let mut channel_ids = self.channel_ids.clone();
+        channel_ids.retain(|url, _| tracked.contains(url));
+        for url in tracked {
+            if let Some(id) = self
+                .index_by_url
+                .get(url)
+                .and_then(|&idx| self.channels[idx].tvg_id.as_ref())
+            {
+                channel_ids.insert(url.clone(), id.clone());
+            }
+        }
         SavedState {
             last_url: Some(self.current_channel().url.clone()),
             last_index: self.current,
+            channel_ids,
+            pinned_numbers: self.pins.clone(),
             favorites,
             recent: self.recent.clone(),
             countries,
@@ -246,8 +426,10 @@ impl Tuner {
                 self.current = idx;
             }
         }
+        self.retried = false;
+        self.tried_alternate = false;
         self.remember(self.current);
-        vec![Effect::Tune(self.current), self.banner()]
+        vec![Effect::Tune(self.current), self.banner(), Effect::Save]
     }
 
     /// Marks a channel as (not) working. Dead channels are skipped by
@@ -256,6 +438,15 @@ impl Tuner {
         if let Some(d) = self.dead.get_mut(idx) {
             *d = dead;
         }
+    }
+
+    pub fn failed_during_playback(&self, idx: usize) -> bool {
+        self.playback_failures.contains(&idx)
+    }
+
+    pub fn playback_started(&mut self, idx: usize) {
+        self.playback_failures.remove(&idx);
+        self.set_dead(idx, false);
     }
 
     /// Channels not known to be dead.
@@ -270,14 +461,21 @@ impl Tuner {
     /// The current channel failed to play: hide it and move on to the next
     /// working channel in the direction the user was zapping.
     pub fn current_failed(&mut self) -> Vec<Effect> {
-        let failed = self.current;
-        self.dead[failed] = true;
+        let next = self
+            .ordered_after(self.current, self.forward)
+            .find(|&idx| idx != self.current && self.matches(idx));
+        self.hide_failed_and_advance(next)
+    }
+
+    fn hide_failed_and_advance(&mut self, next: Option<usize>) -> Vec<Effect> {
+        self.dead[self.current] = true;
+        self.playback_failures.insert(self.current);
         let previous = self.previous;
-        match self.step(self.forward) {
+        match next {
             Some(idx) => {
                 let fx = self.tune(idx);
                 // "Previous channel" should not lead back to the dead one.
-                self.previous = previous.filter(|&p| p != idx);
+                self.previous = previous.filter(|&p| p != idx && !self.dead[p]);
                 fx
             }
             None => vec![self.osd(t("No working channels in this view"))],
@@ -305,6 +503,15 @@ impl Tuner {
     }
 
     pub fn handle(&mut self, action: Action) -> Vec<Effect> {
+        if matches!(
+            action,
+            Action::NextGroup
+                | Action::PrevGroup
+                | Action::ToggleFavoritesOnly
+                | Action::ToggleRecent
+        ) {
+            self.show_unavailable = false;
+        }
         match action {
             Action::ChannelUp | Action::ChannelDown => {
                 self.digits.clear();
@@ -344,6 +551,24 @@ impl Tuner {
                 _ => vec![self.osd(t("No previous channel"))],
             },
             Action::Info => vec![self.info()],
+            Action::PinNumber => {
+                let number = self.number(self.current);
+                let url = self.current_channel().url.clone();
+                let message = if self.pins.get(&number) == Some(&url) {
+                    self.pins.remove(&number);
+                    t("Channel number unpinned")
+                } else {
+                    self.pins.retain(|_, pinned_url| *pinned_url != url);
+                    self.pins.insert(number, url);
+                    t("Channel number pinned")
+                };
+                self.assign_numbers();
+                vec![self.osd(message), Effect::Save]
+            }
+            Action::ToggleUnavailable => {
+                self.show_unavailable = !self.show_unavailable;
+                vec![]
+            }
             Action::NextGroup | Action::PrevGroup => self.cycle_group(action == Action::NextGroup),
             Action::ToggleFavorite => self.toggle_favorite_at(self.current),
             Action::ToggleFavoritesOnly => {
@@ -379,6 +604,10 @@ impl Tuner {
 
     /// Tunes directly to a channel index (e.g. picked from a list panel).
     pub fn tune_to(&mut self, idx: usize) -> Vec<Effect> {
+        if self.show_unavailable && idx < self.channels.len() {
+            self.show_unavailable = false;
+            self.dead[idx] = false;
+        }
         if idx >= self.channels.len() {
             return vec![];
         }
@@ -458,6 +687,9 @@ impl Tuner {
     /// (ignoring case and accents), in the list and when zapping. An empty
     /// text ends the search. Doesn't change the channel being watched.
     pub fn set_search(&mut self, text: &str) {
+        if !text.trim().is_empty() {
+            self.show_unavailable = false;
+        }
         self.search_text = text.trim().to_string();
         self.search_words = normalize(text)
             .split_whitespace()
@@ -610,7 +842,7 @@ impl Tuner {
     pub fn recent(&self) -> Vec<usize> {
         self.recent
             .iter()
-            .filter_map(|url| self.channels.iter().position(|c| c.url == *url))
+            .filter_map(|url| self.index_by_url.get(url).copied())
             .filter(|&i| self.is_listed(i))
             .collect()
     }
@@ -618,6 +850,14 @@ impl Tuner {
     /// The channels in the current view: by number, except recently watched
     /// ones, which are most recent first.
     pub fn view(&self) -> Vec<usize> {
+        if self.show_unavailable {
+            return self
+                .by_number
+                .iter()
+                .copied()
+                .filter(|&idx| self.dead[idx])
+                .collect();
+        }
         if self.filter == Filter::Recent {
             return self
                 .recent()
@@ -625,7 +865,9 @@ impl Tuner {
                 .filter(|&i| self.matches(i))
                 .collect();
         }
-        (0..self.channels.len())
+        self.by_number
+            .iter()
+            .copied()
             .filter(|&i| self.matches(i))
             .collect()
     }
@@ -633,6 +875,9 @@ impl Tuner {
     /// e.g. "All channels (7012)", "News (630)", "Favorites (3)", counting
     /// only channels not known to be dead.
     pub fn view_title(&self) -> String {
+        if self.show_unavailable {
+            return t("Unavailable channels").into();
+        }
         let name = self
             .filter_name()
             .unwrap_or_else(|| t("All channels").into());
@@ -645,7 +890,7 @@ impl Tuner {
     /// Human readable "number  name" label.
     pub fn label(&self, idx: usize) -> String {
         let star = if self.is_favorite(idx) { " ★" } else { "" };
-        format!("{}  {}{}", idx + 1, self.channels[idx].name, star)
+        format!("{}  {}{}", self.number(idx), self.channels[idx].name, star)
     }
 
     fn matches(&self, idx: usize) -> bool {
@@ -671,17 +916,21 @@ impl Tuner {
         }
     }
 
+    fn ordered_after(&self, from: usize, forward: bool) -> impl Iterator<Item = usize> + '_ {
+        let n = self.channels.len();
+        let from = self.number(from) - 1;
+        (1..=n).map(move |k| {
+            self.by_number[if forward {
+                (from + k) % n
+            } else {
+                (from + n - k) % n
+            }]
+        })
+    }
+
     /// Next/previous channel in the current filter, wrapping around.
     fn step_from(&self, from: usize, forward: bool) -> Option<usize> {
-        let n = self.channels.len();
-        (1..=n)
-            .map(|k| {
-                if forward {
-                    (from + k) % n
-                } else {
-                    (from + n - k) % n
-                }
-            })
+        self.ordered_after(from, forward)
             .find(|&idx| self.matches(idx))
     }
 
@@ -704,6 +953,8 @@ impl Tuner {
             self.previous = Some(self.current);
             self.current = idx;
         }
+        self.retried = false;
+        self.tried_alternate = false;
         self.remember(idx);
         vec![Effect::Tune(idx), self.banner(), Effect::Save]
     }
@@ -725,9 +976,9 @@ impl Tuner {
             return vec![];
         }
         self.forward = true;
-        match typed.parse::<usize>() {
-            Ok(n) if (1..=self.channels.len()).contains(&n) => self.tune(n - 1),
-            _ => vec![self.osd(&tf("No channel {0}", &[&typed]))],
+        match typed.parse().ok().and_then(|n| self.index_for_number(n)) {
+            Some(idx) => self.tune_to(idx),
+            None => vec![self.osd(&tf("No channel {0}", &[&typed]))],
         }
     }
 
@@ -762,7 +1013,7 @@ impl Tuner {
         let mut text = format!(
             "{}\nChannel {} of {}",
             self.label(self.current),
-            self.current + 1,
+            self.number(self.current),
             self.channels.len()
         );
         if !ch.groups.is_empty() {
@@ -1171,6 +1422,60 @@ mod tests {
         assert_eq!(t.filter(), Filter::Recent);
         t.handle(Action::PrevGroup);
         assert_eq!(t.filter(), Filter::All);
+    }
+
+    #[test]
+    fn restores_channel_settings_and_pin_after_url_and_order_change() {
+        let mut tuner = tuner(3);
+        tuner.channels[1].tvg_id = Some("station@HD".into());
+        tuner.tune_to(1);
+        tuner.toggle_favorite_at(1);
+        tuner.handle(Action::PinNumber);
+        let state = tuner.state();
+
+        let mut channels = tuner.channels().to_vec();
+        channels[1].url = "http://replacement".into();
+        channels.swap(0, 1);
+        let mut restored = Tuner::new(channels, &state).unwrap();
+        assert_eq!(restored.current(), 0);
+        assert_eq!(restored.recent(), vec![0]);
+        assert!(restored.is_favorite(0));
+        assert_eq!(restored.number(0), 2);
+        assert_eq!(restored.number(1), 1);
+        assert_eq!(restored.view(), vec![1, 0, 2]);
+        assert_eq!(tuned(&restored.handle(Action::Digit(2))), Some(0));
+        assert_eq!(tuned(&restored.handle(Action::ChannelUp)), Some(2));
+        assert!(restored.export_favorites().contains("http://replacement"));
+    }
+
+    #[test]
+    fn stream_recovery_retries_and_then_uses_one_verified_variant() {
+        let mut tuner = tuner(5);
+        for (idx, id) in ["station@HD", "station@SD", "station@UHD", "station@backup"]
+            .into_iter()
+            .enumerate()
+        {
+            tuner.channels[idx].tvg_id = Some(id.into());
+        }
+        let verified = |ch: &Channel| ch.url == "http://c2" || ch.url == "http://c3";
+        assert_eq!(tuned(&tuner.recover(verified)), Some(0));
+        assert!(!tuner.is_dead(0));
+        assert_eq!(tuned(&tuner.recover(verified)), Some(2));
+        assert!(tuner.is_dead(0));
+        let effects = tuner.recover(verified);
+        assert_eq!(tuned(&effects), Some(4));
+        assert!(tuner.is_dead(2));
+        assert!(effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Osd { text, .. }
+            if text.contains("unavailable"))));
+
+        tuner.handle(Action::ToggleUnavailable);
+        assert_eq!(tuner.view(), vec![0, 2]);
+        assert_eq!(tuned(&tuner.tune_to(0)), Some(0));
+        assert!(!tuner.showing_unavailable());
+        assert!(!tuner.is_dead(0));
+        assert_eq!(tuned(&tuner.recover(verified)), Some(0));
     }
 
     #[test]

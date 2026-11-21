@@ -93,6 +93,7 @@ pub struct Snapshot {
     pub listed: Vec<bool>,
     pub favorites: Vec<bool>,
     pub current: usize,
+    pub numbers: Vec<usize>,
     /// Volume in percent, if the player reports it.
     pub volume: Option<u32>,
     pub muted: bool,
@@ -128,6 +129,7 @@ impl Snapshot {
     /// channels are listed.
     pub fn refresh(&mut self, tuner: &Tuner) {
         let n = self.names.len();
+        self.numbers = (0..n).map(|idx| tuner.number(idx)).collect();
         self.listed = (0..n).map(|i| tuner.is_listed(i)).collect();
         self.favorites = (0..n).map(|i| tuner.is_favorite(i)).collect();
         self.current = tuner.current();
@@ -497,7 +499,7 @@ fn state_json(shared: &Shared, seen: u64) -> serde_json::Value {
         "count": s.listed.iter().filter(|l| **l).count(),
         "current": {
             "idx": cur,
-            "number": cur + 1,
+            "number": s.numbers.get(cur).copied().unwrap_or(cur + 1),
             "name": s.names.get(cur),
             "fav": s.favorites.get(cur).copied().unwrap_or(false),
             "logo": s.logos.get(cur),
@@ -517,7 +519,7 @@ enum Show {
     Recent,
 }
 
-/// Listed channels matching a search: `[[idx, name, favorite, logo], ...]`
+/// Listed channels matching a search: `[[idx, name, favorite, logo, number], ...]`
 /// (recently watched: most recent first; otherwise by number).
 fn list_json(shared: &Shared, query: &str, show: Show) -> serde_json::Value {
     let words: Vec<String> = normalize(query)
@@ -528,7 +530,11 @@ fn list_json(shared: &Shared, query: &str, show: Show) -> serde_json::Value {
     let s = &st.snapshot;
     let order: Vec<usize> = match show {
         Show::Recent => s.recent.clone(),
-        _ => (0..s.names.len()).collect(),
+        _ => {
+            let mut by_number: Vec<_> = (0..s.names.len()).collect();
+            by_number.sort_by_key(|&i| s.numbers.get(i).copied().unwrap_or(i + 1));
+            by_number
+        }
     };
     let fav = |i: usize| s.favorites.get(i).copied().unwrap_or(false);
     let items: Vec<serde_json::Value> = order
@@ -541,7 +547,8 @@ fn list_json(shared: &Shared, query: &str, show: Show) -> serde_json::Value {
                 i,
                 s.names[i],
                 fav(i),
-                s.logos.get(i).map(String::as_str).unwrap_or("")
+                s.logos.get(i).map(String::as_str).unwrap_or(""),
+                s.numbers.get(i).copied().unwrap_or(i + 1)
             ])
         })
         .collect();

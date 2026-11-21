@@ -23,6 +23,8 @@ class ChannelAdapter(
 
     /** All channel logo addresses by index ("" if none). */
     var logos: Array<String> = emptyArray()
+    var numbers = IntArray(0)
+    var showGuide = false
 
     /** Channel indices shown: ascending, except recently watched (most recent first). */
     var items: IntArray = IntArray(0)
@@ -49,13 +51,9 @@ class ChannelAdapter(
     /** Position of channel [idx], or (in a list sorted by number) of the nearest following one. */
     fun positionOf(idx: Int): Int {
         items.indexOf(idx).let { if (it >= 0) return it }
-        var lo = 0
-        var hi = items.size
-        while (lo < hi) {
-            val mid = (lo + hi) ushr 1
-            if (items[mid] < idx) lo = mid + 1 else hi = mid
-        }
-        return lo.coerceAtMost((items.size - 1).coerceAtLeast(0))
+        val number = numbers.getOrElse(idx) { idx + 1 }
+        return items.indexOfFirst { numbers.getOrElse(it) { it + 1 } >= number }
+            .takeIf { it >= 0 } ?: items.lastIndex.coerceAtLeast(0)
     }
 
     override fun getItemCount() = items.size
@@ -68,7 +66,10 @@ class ChannelAdapter(
     override fun onBindViewHolder(holder: Holder, position: Int) {
         val idx = items[position]
         val playing = idx == current
-        holder.number.text = (idx + 1).toString()
+        holder.number.text = numbers.getOrElse(idx) { idx + 1 }.toString()
+        val summary = if (showGuide) Core.guideSummary(idx) else ""
+        holder.summary.text = summary
+        holder.summary.visibility = if (summary.isEmpty()) View.GONE else View.VISIBLE
         holder.name.text = buildString {
             if (playing) append("▶ ")
             append(names.getOrElse(idx) { "" })
@@ -83,6 +84,7 @@ class ChannelAdapter(
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
         val number: TextView = view.findViewById(R.id.number)
         val name: TextView = view.findViewById(R.id.name)
+        val summary: TextView = view.findViewById(R.id.guideSummary)
         val logo: ImageView = view.findViewById(R.id.logo)
     }
 }

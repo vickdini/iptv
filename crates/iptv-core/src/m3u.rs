@@ -10,6 +10,11 @@
 
 use serde::{Deserialize, Serialize};
 
+/// iptv-org appends a stream variant after '@' to the station identifier.
+pub fn station_id(id: &str) -> &str {
+    id.split_once('@').map_or(id, |(station, _)| station)
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Channel {
     pub name: String,

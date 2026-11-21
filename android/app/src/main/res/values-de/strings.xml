@@ -44,4 +44,14 @@
     <string name="regions_hint">Zeigt Sender aus einem der gewählten Länder oder in einer der gewählten Sprachen.</string>
     <string name="update_ready">IPTV %1$s ist verfügbar — das Update wird installiert…</string>
     <string name="casting">Wird auf deinem Fernseher abgespielt (Chromecast)</string>
+    <string name="channel_options">Senderoptionen</string>
+    <string name="pin_channel_number">Aktuelle Sendernummer fixieren oder freigeben</string>
+    <string name="unavailable_channels">Nicht verfügbare Sender ein- oder ausblenden</string>
+    <string name="tv_guide">TV-Programm</string>
+    <string name="tv_guide_url">URL der XMLTV-Quelle</string>
+    <string name="tv_guide_load">Programm laden</string>
+    <string name="tv_guide_remove">Programm entfernen</string>
+    <string name="tv_guide_failed">TV-Programm konnte nicht geladen werden. Prüfe die XMLTV-URL.</string>
+    <string name="tv_guide_loaded">TV-Programm geladen</string>
+    <string name="stream_buffering">Stream wird gepuffert…</string>
 </resources>

@@ -44,4 +44,14 @@
     <string name="regions_hint">Mostra os canais de qualquer país escolhido ou em qualquer idioma escolhido.</string>
     <string name="update_ready">O IPTV %1$s está disponível — a instalar a atualização…</string>
     <string name="casting">A reproduzir na TV (Chromecast)</string>
+    <string name="channel_options">Opções do canal</string>
+    <string name="pin_channel_number">Fixar ou libertar o número do canal atual</string>
+    <string name="unavailable_channels">Mostrar ou ocultar canais indisponíveis</string>
+    <string name="tv_guide">Guia TV</string>
+    <string name="tv_guide_url">URL da fonte XMLTV</string>
+    <string name="tv_guide_load">Carregar guia</string>
+    <string name="tv_guide_remove">Remover guia</string>
+    <string name="tv_guide_failed">Não foi possível carregar o guia TV. Verifique o URL XMLTV.</string>
+    <string name="tv_guide_loaded">Guia TV carregado</string>
+    <string name="stream_buffering">A carregar a emissão…</string>
 </resources>

@@ -426,13 +426,36 @@ The channel being watched is marked ▶; favorites are marked ★.
 
 ### Channel numbers
 
-Channel numbers are positions in the playlist. Hidden (non-working) channels
+Channel numbers default to positions in the playlist. Hidden (non-working) channels
 leave gaps instead of renumbering the others, so a channel's number doesn't
 depend on which other channels happen to be online. Numbers can shift when the
 upstream playlist changes. The last channel and favorites are remembered by
 stream address, so they survive such changes.
 
 ## How it works
+
+### TV guide and playback recovery
+
+Desktop and Android can show **Now / Next** in the channel list and channel
+info. Supply an XMLTV feed that covers your playlist. The guide matches
+programmes to the playlist's `tvg-id` values and supports plain or
+gzip-compressed XMLTV.
+
+* **Desktop:** Start IPTV with `--guide <URL-or-file>` or set the `IPTV_GUIDE`
+  environment variable. Press **i** for channel info, **u** for unavailable
+  channels, or **Shift+N** to pin or unpin the current channel's number.
+* **Android and Android TV:** Open **Channel options** (⋮) in the channel list.
+  Choose **TV guide** to set or remove an XMLTV feed URL. The same menu lets
+  you open unavailable channels or pin the current channel's number.
+
+Live playback retries a failed or stalled stream once and can try a recently
+verified alternate for the same station. If playback still fails, IPTV marks
+the stream unavailable and moves on when another channel is available. Select
+a channel in the unavailable list to try it again.
+
+Favorites, recents, the last channel, and pinned numbers survive playlist
+reordering. When a saved URL changes, IPTV can reconnect these settings to a
+unique matching `tvg-id`. Existing favorites export files still work.
 
 ### Always the latest playlist
 

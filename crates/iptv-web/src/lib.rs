@@ -268,7 +268,7 @@ impl WebCore {
                         "type": "tune",
                         "seq": self.tune_seq,
                         "idx": idx,
-                        "number": idx + 1,
+                        "number": self.tuner.number(idx),
                         "name": ch.name,
                         "url": ch.url,
                         "userAgent": ch.user_agent.as_deref().unwrap_or(DEFAULT_USER_AGENT),

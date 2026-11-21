@@ -56,7 +56,11 @@ pub enum Event {
         error: String,
     },
     /// The stream started decoding.
-    FileLoaded,
+    FileLoaded(Option<u64>),
+    Buffering {
+        entry_id: Option<u64>,
+        buffering: bool,
+    },
     /// Mouse position in window pixels; `hover` is false outside the window.
     MousePos {
         x: f64,
@@ -251,6 +255,8 @@ impl Mpv {
         mpv.command(json!(["observe_property", 4, "volume"]))
             .await?;
         mpv.command(json!(["observe_property", 5, "mute"])).await?;
+        mpv.command(json!(["observe_property", 6, "paused-for-cache"]))
+            .await?;
         Ok((mpv, rx))
     }
 
@@ -351,6 +357,7 @@ impl Drop for Mpv {
 
 async fn read_events(reader: impl AsyncRead + Unpin, tx: mpsc::UnboundedSender<Event>) {
     let mut lines = BufReader::new(reader).lines();
+    let mut current_entry = None;
     while let Ok(Some(line)) = lines.next_line().await {
         let Ok(msg) = serde_json::from_str::<Value>(&line) else {
             continue;
@@ -373,14 +380,20 @@ async fn read_events(reader: impl AsyncRead + Unpin, tx: mpsc::UnboundedSender<E
                     .unwrap_or_default();
                 Event::ClientMessage(args)
             }
-            Some("end-file") if msg["reason"] == "error" => Event::PlaybackError {
-                entry_id: msg["playlist_entry_id"].as_u64(),
-                error: msg["file_error"]
-                    .as_str()
-                    .unwrap_or("unknown error")
-                    .to_string(),
-            },
-            Some("file-loaded") => Event::FileLoaded,
+            Some("end-file") if msg["reason"] == "error" || msg["reason"] == "eof" => {
+                Event::PlaybackError {
+                    entry_id: msg["playlist_entry_id"].as_u64(),
+                    error: msg["file_error"]
+                        .as_str()
+                        .unwrap_or("unknown error")
+                        .to_string(),
+                }
+            }
+            Some("start-file") => {
+                current_entry = msg["playlist_entry_id"].as_u64();
+                continue;
+            }
+            Some("file-loaded") => Event::FileLoaded(current_entry),
             Some("property-change") => {
                 let d = &msg["data"];
                 let num = |k: &str| d[k].as_f64();
@@ -398,6 +411,13 @@ async fn read_events(reader: impl AsyncRead + Unpin, tx: mpsc::UnboundedSender<E
                         _ => continue,
                     },
                     Some("track-list") => Event::Tracks(parse_tracks(d)),
+                    Some("paused-for-cache") => match d.as_bool() {
+                        Some(buffering) => Event::Buffering {
+                            entry_id: current_entry,
+                            buffering,
+                        },
+                        None => continue,
+                    },
                     Some("volume") => match d.as_f64() {
                         Some(v) => Event::Volume(v),
                         None => continue,

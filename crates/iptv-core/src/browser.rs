@@ -6,7 +6,7 @@
 
 #[derive(Debug, Clone)]
 pub struct Browser {
-    /// Channel indices shown in the panel, ascending.
+    /// Channel indices in display order.
     items: Vec<usize>,
     /// Position in `items` of the selected entry.
     selected: usize,
@@ -16,7 +16,7 @@ pub struct Browser {
 }
 
 impl Browser {
-    /// `items` must be sorted ascending (as returned by `Tuner::view`).
+    /// `items` is in display order.
     pub fn new(items: Vec<usize>, focus: usize, rows: usize) -> Self {
         let mut b = Self {
             items,
@@ -81,7 +81,15 @@ impl Browser {
         self.items
             .iter()
             .position(|&c| c == channel)
-            .unwrap_or_else(|| self.items.partition_point(|&c| c < channel))
+            .or_else(|| {
+                self.items
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, c)| **c >= channel)
+                    .min_by_key(|(_, c)| **c)
+                    .map(|(pos, _)| pos)
+            })
+            .unwrap_or(self.items.len())
             .min(self.items.len().saturating_sub(1))
     }
 

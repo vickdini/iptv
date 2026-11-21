@@ -56,6 +56,10 @@ struct Args {
     #[arg(long, env = "IPTV_MPV")]
     mpv: Option<PathBuf>,
 
+    /// XMLTV guide URL or local file, optionally gzip-compressed.
+    #[arg(long, env = "IPTV_GUIDE")]
+    guide: Option<String>,
+
     /// Start on this channel number.
     #[arg(short, long)]
     channel: Option<usize>,
@@ -158,7 +162,12 @@ async fn run(args: Args) -> Result<()> {
             let filter = filter.to_lowercase();
             for (i, c) in tuner.channels().iter().enumerate() {
                 if c.name.to_lowercase().contains(&filter) {
-                    println!("{:>6}  {}  [{}]", i + 1, c.name, c.groups.join(", "));
+                    println!(
+                        "{:>6}  {}  [{}]",
+                        tuner.number(i),
+                        c.name,
+                        c.groups.join(", ")
+                    );
                 }
             }
         }
@@ -188,15 +197,14 @@ async fn run(args: Args) -> Result<()> {
         "Could not load the channel list. Check your internet connection.",
     ))?;
 
-    let mut state = storage::load_state();
-    if let Some(n) = args.channel {
-        if n == 0 || n > channels.len() {
-            bail!("Channel {n} does not exist (1-{}).", channels.len());
-        }
-        state.last_url = None;
-        state.last_index = n - 1;
-    }
+    let state = storage::load_state();
     let mut tuner = Tuner::new(channels, &state).expect("non-empty playlist");
+    if let Some(n) = args.channel {
+        let Some(idx) = tuner.index_for_number(n) else {
+            bail!("Channel {n} does not exist (1-{}).", tuner.channels().len());
+        };
+        tuner.tune_to(idx);
+    }
     if let Some(g) = &args.group {
         if !tuner.set_group(g) {
             bail!("Unknown group {g:?}; use --list-groups to see the available ones.");
@@ -252,7 +260,31 @@ async fn run(args: Args) -> Result<()> {
     let (logos, mut logo_rx) = logos::Logos::new(storage::cache_dir(), DEFAULT_USER_AGENT);
     // Phone remote requests, forwarded from the remote's server threads.
     let (remote_tx, mut remote_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (guide_tx, mut guide_rx) = tokio::sync::mpsc::channel(1);
+    if let Some(source) = args.guide {
+        tokio::spawn(async move {
+            loop {
+                let source = source.clone();
+                let result =
+                    tokio::task::spawn_blocking(move || iptv_net::guide::Guide::load(&source))
+                        .await;
+                match result {
+                    Ok(Ok(guide)) => {
+                        if guide_tx.send(guide).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(Err(error)) => eprintln!("Could not load TV guide: {error}"),
+                    Err(error) => eprintln!("TV guide worker failed: {error}"),
+                }
+                tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
+            }
+        });
+    }
     let mut app = App {
+        guide: iptv_net::guide::Guide::default(),
+        playback_deadline: None,
+        playback_buffering: false,
         player,
         tuner,
         panel: None,
@@ -297,6 +329,7 @@ async fn run(args: Args) -> Result<()> {
 
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     let mut last_save = Instant::now();
+    let mut last_guide_redraw = Instant::now();
     let mut checks_open = true;
 
     // Look for a newer version in the background; playback isn't delayed.
@@ -333,15 +366,31 @@ async fn run(args: Args) -> Result<()> {
                         app.on_playback_failed(&error).await?;
                     }
                 }
-                Some(Event::FileLoaded) => {
+                Some(Event::Buffering { entry_id, buffering }) => {
+                    if entry_id != Some(app.tune_seq) {
+                        continue;
+                    }
+                    app.playback_buffering = buffering;
+                    if buffering {
+                        app.playback_deadline.get_or_insert_with(|| Instant::now() + Duration::from_secs(20));
+                        app.player.show_text(i18n::t("Buffering…"), 3000).await?;
+                    } else if app.current_loaded {
+                        app.playback_deadline = None;
+                    }
+                }
+                Some(Event::FileLoaded(entry_id)) => {
+                    if entry_id.is_some_and(|id| id != app.tune_seq) {
+                        continue;
+                    }
                     app.current_loaded = true;
+                    if !app.playback_buffering {
+                        app.playback_deadline = None;
+                    }
                     let cur = app.tuner.current();
                     let url = app.tuner.channels()[cur].url.clone();
                     app.health.record(&url, true);
-                    if app.tuner.is_dead(cur) {
-                        app.tuner.set_dead(cur, false);
-                        app.view_dirty = true;
-                    }
+                    app.view_dirty |= app.tuner.is_dead(cur);
+                    app.tuner.playback_started(cur);
                 }
                 Some(Event::MousePos { x, y, hover }) => {
                     app.mouse = hover.then_some((x, y));
@@ -382,7 +431,18 @@ async fn run(args: Args) -> Result<()> {
                 app.show_banner_logo().await?;
             }
             Some((generation, ev)) = pip_rx.recv() => app.on_pip_event(generation, ev).await?,
+            Some(guide) = guide_rx.recv() => {
+                app.guide = guide;
+                app.redraw().await?;
+            }
             _ = tick.tick() => {
+                if app.playback_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                    app.on_playback_failed("buffering timeout").await?;
+                }
+                if app.panel.is_some() && last_guide_redraw.elapsed() >= Duration::from_secs(30) {
+                    last_guide_redraw = Instant::now();
+                    app.redraw().await?;
+                }
                 if app.view_dirty {
                     app.sync_remote();
                 }
@@ -442,6 +502,9 @@ async fn run(args: Args) -> Result<()> {
 }
 
 struct App {
+    guide: iptv_net::guide::Guide,
+    playback_deadline: Option<Instant>,
+    playback_buffering: bool,
     player: Mpv,
     tuner: Tuner,
     /// The channel list panel, when open.
@@ -512,6 +575,8 @@ struct Pip {
 fn shortcut(c: &str) -> Option<&'static str> {
     Some(match c {
         "i" => "info",
+        "u" => "unavailable",
+        "N" => "pin-number",
         "l" => "list",
         "g" => "group-next",
         "G" => "group-prev",
@@ -540,6 +605,9 @@ fn shortcut(c: &str) -> Option<&'static str> {
 impl App {
     fn on_check(&mut self, r: CheckResult) {
         self.check_done += 1;
+        if self.tuner.failed_during_playback(r.idx) {
+            return;
+        }
         let url = self.tuner.channels()[r.idx].url.clone();
         match r.probe {
             Probe::Ok => {
@@ -733,7 +801,7 @@ impl App {
                 &ch.url,
                 &i18n::tf(
                     "{0} — small picture",
-                    &[&format!("{}  {}", idx + 1, ch.name)],
+                    &[&format!("{}  {}", self.tuner.number(idx), ch.name)],
                 ),
                 ch.user_agent.as_deref().unwrap_or(DEFAULT_USER_AGENT),
                 ch.referrer.as_deref().unwrap_or(""),
@@ -795,9 +863,11 @@ impl App {
                     }
                 }
             }
-            Event::FileLoaded => {
+            Event::FileLoaded(entry_id) => {
                 if let Some(pip) = self.pip.as_mut() {
-                    pip.fails = 0;
+                    if entry_id.is_none_or(|id| id == pip.seq) {
+                        pip.fails = 0;
+                    }
                 }
             }
             Event::Closed => self.pip = None, // the user closed it
@@ -1007,16 +1077,24 @@ impl App {
         }
     }
 
-    /// The current stream failed: hide it and quietly move on.
+    /// Retry the failed stream before falling back to another channel.
     async fn on_playback_failed(&mut self, error: &str) -> Result<()> {
         let cur = self.tuner.current();
         let url = self.tuner.channels()[cur].url.clone();
         if self.debug {
-            eprintln!("channel {} failed ({error}), skipping", cur + 1);
+            eprintln!("channel {} failed ({error})", self.tuner.number(cur));
         }
-        self.health.record(&url, false);
-        self.view_dirty = true;
-        let fx = self.tuner.current_failed();
+        self.playback_deadline = None;
+        let fx = self
+            .tuner
+            .recover(|ch| self.health.get(&ch.url) == Some((true, true)));
+        if self.tuner.is_dead(cur) {
+            self.health.record(&url, false);
+            self.view_dirty = true;
+        }
+        if !fx.iter().any(|effect| matches!(effect, Effect::Tune(_))) {
+            self.player.command(json!(["stop"])).await?;
+        }
         self.apply(fx).await
     }
 
@@ -1060,6 +1138,15 @@ impl App {
             other => other,
         };
         match name {
+            "info" => return self.run(Action::Info).await,
+            "unavailable" => {
+                self.run(Action::ToggleUnavailable).await?;
+                if self.panel.is_none() {
+                    return self.open_panel().await;
+                }
+                return Ok(());
+            }
+            "pin-number" => return self.run(Action::PinNumber).await,
             "search" => return self.start_search().await,
             "regions" => return self.open_picker().await,
             "remote" => return self.open_remote_card().await,
@@ -1421,7 +1508,12 @@ impl App {
         }
         if let Some(panel) = &self.panel {
             let typing = self.typing.then_some(self.query.as_str());
-            let ass = panel.render(&self.tuner, self.check_status().as_deref(), typing);
+            let ass = panel.render(
+                &self.tuner,
+                self.check_status().as_deref(),
+                typing,
+                &self.guide,
+            );
             self.player
                 .overlay(PANEL_OVERLAY_ID, &ass, panel::H)
                 .await?;
@@ -1526,8 +1618,16 @@ impl App {
     }
 
     async fn run(&mut self, action: Action) -> Result<()> {
-        let fx = self.tuner.handle(action);
-        self.apply(fx).await
+        let mut effects = self.tuner.handle(action);
+        if action == Action::Info {
+            let summary = self.guide.summary(self.tuner.current_channel(), "\n");
+            if let Some(Effect::Osd { text, .. }) = effects.first_mut() {
+                if !summary.is_empty() {
+                    text.insert_str(0, &format!("{summary}\n"));
+                }
+            }
+        }
+        self.apply(effects).await
     }
 
     async fn apply(&mut self, effects: Vec<Effect>) -> Result<()> {
@@ -1540,6 +1640,8 @@ impl App {
                         Some((idx, Instant::now() + Duration::from_millis(BANNER_MS)));
                     self.tune_seq += 1;
                     self.current_loaded = false;
+                    self.playback_buffering = false;
+                    self.playback_deadline = Some(Instant::now() + Duration::from_secs(20));
                     self.tracks.clear();
                     if self.hint_until.take().is_some() {
                         self.player.remove_overlay(HINT_OVERLAY_ID).await?;
@@ -1554,7 +1656,7 @@ impl App {
                     self.player
                         .play(
                             &ch.url,
-                            &format!("{}  {}", idx + 1, ch.name),
+                            &format!("{}  {}", self.tuner.number(idx), ch.name),
                             ch.user_agent.as_deref().unwrap_or(DEFAULT_USER_AGENT),
                             ch.referrer.as_deref().unwrap_or(""),
                         )

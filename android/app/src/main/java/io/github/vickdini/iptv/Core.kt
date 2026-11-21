@@ -20,6 +20,10 @@ object Core {
     /** Downloads (or confirms up to date) the playlist and starts channel checks. Blocking. */
     @JvmStatic external fun loadPlaylist(url: String): String
 
+    @JvmStatic external fun loadGuide(source: String): String
+    @JvmStatic external fun guideSummary(idx: Int): String
+    @JvmStatic external fun channelNumbers(): IntArray
+
     /** Effects for startup: tune the last watched channel. */
     @JvmStatic external fun start(): String
 
