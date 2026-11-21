@@ -47,18 +47,33 @@ pub enum Command {
         arg: Option<String>,
     },
     /// Watch this channel (index).
-    Tune { idx: usize },
+    Tune {
+        idx: usize,
+    },
     /// Toggle this channel's favorite star.
-    Fav { idx: usize },
+    Fav {
+        idx: usize,
+    },
     /// Change the volume by this many percent.
-    Volume { delta: i32 },
+    Volume {
+        delta: i32,
+    },
     /// Toggle mute.
     Mute,
     /// Choose an audio / subtitle track (`id` None: subtitles off).
-    Track { kind: TrackKind, id: Option<i64> },
+    Track {
+        kind: TrackKind,
+        id: Option<i64>,
+    },
     /// Add these favorites (stream addresses), from a favorites file the
     /// phone sent; `missing` of them aren't in this playlist.
-    AddFavorites { urls: Vec<String>, missing: usize },
+    AddFavorites {
+        urls: Vec<String>,
+        missing: usize,
+    },
+    Playlist {
+        input: iptv_net::sources::Input,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,6 +108,7 @@ pub struct Snapshot {
     pub listed: Vec<bool>,
     pub favorites: Vec<bool>,
     pub current: usize,
+    pub playlists: serde_json::Value,
     pub numbers: Vec<usize>,
     /// Volume in percent, if the player reports it.
     pub volume: Option<u32>,
@@ -278,9 +294,9 @@ struct Request {
     body: Vec<u8>,
 }
 
-fn read_request(stream: &TcpStream) -> io::Result<Request> {
+fn read_request(stream: &TcpStream, pin: &str) -> io::Result<Request> {
     let bad = |m: &str| io::Error::new(io::ErrorKind::InvalidData, m.to_string());
-    let mut reader = BufReader::new(stream.try_clone()?.take(64 * 1024));
+    let mut reader = BufReader::new(stream.try_clone()?.take(4 * 1024 * 1024 + 64 * 1024));
     let mut line = String::new();
     reader.read_line(&mut line)?;
     let mut parts = line.split_whitespace();
@@ -291,12 +307,17 @@ fn read_request(stream: &TcpStream) -> io::Result<Request> {
     let target = parts.next().ok_or_else(|| bad("no path"))?;
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
     let (path, query) = (path.to_string(), query.to_string());
+    let mut headers = line.len();
     let mut length = 0usize;
     let mut key = None;
     loop {
         let mut h = String::new();
         if reader.read_line(&mut h)? == 0 || h.trim().is_empty() {
             break;
+        }
+        headers += h.len();
+        if headers > 64 * 1024 {
+            return Err(bad("headers too large"));
         }
         if let Some((name, value)) = h.split_once(':') {
             let value = value.trim();
@@ -308,8 +329,16 @@ fn read_request(stream: &TcpStream) -> io::Result<Request> {
         }
     }
     // Favorites files can be a few hundred kilobytes.
-    if length > 1024 * 1024 {
+    let limit = if path == "/api/cmd" {
+        4 * 1024 * 1024
+    } else {
+        1024 * 1024
+    };
+    if length > limit {
         return Err(bad("body too large"));
+    }
+    if length > 64 * 1024 && key.as_deref() != Some(pin) {
+        return Err(bad("large request requires pairing"));
     }
     let mut body = vec![0; length];
     reader.read_exact(&mut body)?;
@@ -351,7 +380,7 @@ fn respond_json(stream: &TcpStream, status: &str, value: serde_json::Value) -> i
 fn handle(stream: TcpStream, shared: &Shared) -> io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     stream.set_write_timeout(Some(Duration::from_secs(10)))?;
-    let req = read_request(&stream)?;
+    let req = read_request(&stream, &shared.pin)?;
     match (req.method.as_str(), req.path.as_str()) {
         ("GET", "/" | "/index.html") => {
             return respond(
@@ -481,6 +510,7 @@ fn valid(shared: &Shared, cmd: &Command) -> bool {
         Command::Mute | Command::Track { .. } => true,
         // Only through /api/favorites, which checks the file.
         Command::AddFavorites { .. } => false,
+        Command::Playlist { input } => input.valid(),
     }
 }
 
@@ -497,6 +527,7 @@ fn state_json(shared: &Shared, seen: u64) -> serde_json::Value {
     json!({
         "seq": st.seq,
         "count": s.listed.iter().filter(|l| **l).count(),
+        "playlists": s.playlists,
         "current": {
             "idx": cur,
             "number": s.numbers.get(cur).copied().unwrap_or(cur + 1),
@@ -671,6 +702,32 @@ mod tests {
             ),
         );
         assert!(r.contains("400"), "{r}");
+    }
+
+    #[test]
+    fn paired_phone_can_send_a_playlist_larger_than_the_header_limit() {
+        use iptv_net::sources::Input;
+
+        let (remote, commands) = Remote::start("123456".into(), snapshot()).unwrap();
+        let input = Input::File {
+            name: "Local playlist".into(),
+            text: format!("#EXTM3U\n{}", "https://example.test/live\n".repeat(3000)),
+            guide: None,
+        };
+        let command = Command::Playlist { input };
+        let body = serde_json::to_string(&command).unwrap();
+        let response = call(
+            remote.port(),
+            &format!(
+                "POST /api/cmd HTTP/1.1\r\nX-Key: 123456\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            ),
+        );
+        assert!(response.contains("200 OK"));
+        assert_eq!(
+            commands.recv_timeout(Duration::from_secs(1)).unwrap(),
+            command
+        );
     }
 
     #[test]

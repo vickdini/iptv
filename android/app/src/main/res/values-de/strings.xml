@@ -54,4 +54,10 @@
     <string name="tv_guide_failed">TV-Programm konnte nicht geladen werden. Prüfe die XMLTV-URL.</string>
     <string name="tv_guide_loaded">TV-Programm geladen</string>
     <string name="stream_buffering">Stream wird gepuffert…</string>
+    <string name="playlists">Playlisten</string>
+    <string name="playlist_from_phone">Vom Handy hinzufügen</string>
+    <string name="playlist_failed">Playlist konnte nicht geöffnet werden</string>
+    <string name="playlist_iptv_org">Weltweite öffentliche Sender</string>
+    <string name="playlist_free_tv">Weltweite frei empfangbare Sender</string>
+    <string name="playlist_italy">Italienische Sender</string>
 </resources>

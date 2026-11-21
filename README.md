@@ -434,6 +434,19 @@ stream address, so they survive such changes.
 
 ## How it works
 
+### Add playlists without a TV keyboard
+
+In the Android TV channel list, open **Channel options → Playlists**. Choose
+**iptv-org**, **Free-TV/IPTV**, or **IPTV-Italy** with the remote. **Add from
+phone** opens the phone remote QR code.
+
+On desktop, press **r** to open the QR code. After pairing on either platform,
+open **Playlists** in the phone remote. Select a saved source or add an M3U
+URL or file from your phone. On Android TV, confirm the new source on the TV.
+You can include an XMLTV URL when adding a source.
+Each source keeps its own guide and the app remembers the last selection.
+Phone uploads support UTF-8 M3U files up to 2 MiB.
+
 ### TV guide and playback recovery
 
 Desktop and Android can show **Now / Next** in the channel list and channel

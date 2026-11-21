@@ -21,6 +21,9 @@ object Core {
     @JvmStatic external fun loadPlaylist(url: String): String
 
     @JvmStatic external fun loadGuide(source: String): String
+    @JvmStatic external fun sourceCatalog(): String
+    @JvmStatic external fun loadSource(input: String?): String
+    @JvmStatic external fun setSourceGuide(source: String?): String
     @JvmStatic external fun guideSummary(idx: Int): String
     @JvmStatic external fun channelNumbers(): IntArray
 

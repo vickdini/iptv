@@ -162,6 +162,24 @@ button:active { filter: brightness(0.85); }
     </div>
     <input id="fav-file" type="file" accept=".json,application/json" hidden>
     <div id="fav-status" class="status" role="status"></div>
+  </details>
+  <details>
+    <summary>Playlists</summary>
+    <label for="playlist-source">Saved playlists</label>
+    <select id="playlist-source"></select>
+    <button id="playlist-select" type="button">Switch playlist</button>
+    <form id="playlist-form">
+      <label for="playlist-name">Name</label>
+      <input id="playlist-name" required maxlength="160" placeholder="My playlist">
+      <label for="playlist-url">M3U URL</label>
+      <input id="playlist-url" type="url" maxlength="4096" placeholder="https://">
+      <label for="playlist-file">Or choose an M3U file</label>
+      <input id="playlist-file" type="file" accept=".m3u,.m3u8">
+      <label for="playlist-guide">XMLTV guide URL (optional)</label>
+      <input id="playlist-guide" type="url" maxlength="4096" placeholder="https://">
+      <button type="submit">Add and switch</button>
+    </form>
+    <div id="playlist-status" class="status" role="status"></div>
   </section>
 </main>
 
@@ -424,7 +442,8 @@ function poll() {
     // Refetch the list only when channels appear / disappear; a new channel
     // just moves the highlight (keeps the phone's scroll position).
     var first = !state;
-    var listChanged = first || s.count !== state.count;
+    var listChanged = first || s.count !== state.count ||
+      JSON.stringify(s.playlists) !== JSON.stringify(state.playlists);
     seq = s.seq;
     state = s;
     render();
@@ -440,6 +459,7 @@ function poll() {
 }
 
 function render() {
+  renderPlaylists(state.playlists);
   var c = state.current;
   $('now-num').textContent = c.number;
   $('now-name').textContent = c.name || '';
@@ -564,6 +584,56 @@ $('q').addEventListener('input', function () {
   listTimer = setTimeout(function () { refreshList(false); }, 200);
 });
 $('more').addEventListener('click', showMore);
+
+/* ---- playlists */
+var lastPlaylists = '';
+function renderPlaylists(catalog) {
+  if (!catalog || !catalog.entries) return;
+  var serialized = JSON.stringify(catalog);
+  if (serialized === lastPlaylists) return;
+  lastPlaylists = serialized;
+  var select = $('playlist-source');
+  select.replaceChildren();
+  catalog.entries.forEach(function (source) {
+    select.add(new Option(source.name, source.id, false, source.id === catalog.active));
+  });
+}
+async function sendPlaylist(input) {
+  var message = $('playlist-status');
+  try {
+    await api('/api/cmd', { cmd: 'playlist', input: input });
+    message.textContent = 'Request sent. Check the IPTV screen for the result.';
+  } catch (e) {
+    message.textContent = 'Could not send playlist: ' + e.message;
+  }
+}
+$('playlist-select').addEventListener('click', function () {
+  var id = $('playlist-source').value;
+  if (id) sendPlaylist({ kind: 'select', id: id });
+});
+$('playlist-form').addEventListener('submit', async function (event) {
+  event.preventDefault();
+  var file = $('playlist-file').files[0];
+  var name = $('playlist-name').value.trim();
+  var url = $('playlist-url').value.trim();
+  var guide = $('playlist-guide').value.trim() || null;
+  var message = $('playlist-status');
+  if ((!file && !url) || (file && url)) {
+    message.textContent = 'Enter a URL or select a file.';
+    return;
+  }
+  if (file && file.size > 2 * 1024 * 1024) {
+    message.textContent = 'Choose a file smaller than 2 MiB.';
+    return;
+  }
+  try {
+    var input = file ? { kind: 'file', name: name, text: await file.text(), guide: guide }
+                     : { kind: 'url', name: name, url: url, guide: guide };
+    await sendPlaylist(input);
+  } catch (error) {
+    message.textContent = 'Could not read playlist: ' + error.message;
+  }
+});
 
 /* ---- moving favorites */
 

@@ -83,6 +83,23 @@ export!(
     |_env, idx: jint| { app::with(|a| Ok(a.guide_summary(idx as usize))) }
 );
 
+export!(Java_io_github_vickdini_iptv_Core_sourceCatalog, |_env| {
+    app::source_catalog()
+});
+export!(
+    Java_io_github_vickdini_iptv_Core_loadSource,
+    |env, input: JString<'l>| {
+        let input = string(env, &input)?
+            .map(|value| serde_json::from_str(&value))
+            .transpose()?;
+        app::load_source(input)
+    }
+);
+export!(
+    Java_io_github_vickdini_iptv_Core_setSourceGuide,
+    |env, guide: JString<'l>| { app::set_source_guide(string(env, &guide)?) }
+);
+
 // start(): effects
 export!(Java_io_github_vickdini_iptv_Core_start, |_env| app::with(
     |a| Ok(a.start())

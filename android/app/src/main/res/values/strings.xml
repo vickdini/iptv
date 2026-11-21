@@ -55,4 +55,10 @@
     <string name="tv_guide_failed">Could not load TV guide. Check the XMLTV feed URL.</string>
     <string name="tv_guide_loaded">TV guide loaded</string>
     <string name="stream_buffering">Buffering…</string>
+    <string name="playlists">Playlists</string>
+    <string name="playlist_from_phone">Add from phone</string>
+    <string name="playlist_failed">Could not open playlist</string>
+    <string name="playlist_iptv_org">Public channels worldwide</string>
+    <string name="playlist_free_tv">Free-to-air channels worldwide</string>
+    <string name="playlist_italy">Italian channels</string>
 </resources>

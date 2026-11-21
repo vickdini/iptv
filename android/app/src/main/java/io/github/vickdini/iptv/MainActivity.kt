@@ -71,6 +71,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.Executors
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * Full-screen TV. All channel logic is in the shared Rust [Core]; this class
@@ -89,7 +90,6 @@ import kotlin.math.abs
 class MainActivity : AppCompatActivity() {
 
     companion object {
-        const val PLAYLIST_URL = "https://iptv-org.github.io/iptv/index.m3u"
         private const val TAG = "IPTV"
         /** Buttons of the picture-in-picture window and the playback notification. */
         const val PIP_ACTION = "io.github.vickdini.iptv.PIP"
@@ -230,6 +230,7 @@ class MainActivity : AppCompatActivity() {
         osd = findViewById(R.id.osd)
         status = findViewById(R.id.status)
         panel = findViewById(R.id.panel)
+        configurePanelWidth()
         panelTitle = findViewById(R.id.panelTitle)
         panelStatus = findViewById(R.id.panelStatus)
         list = findViewById(R.id.list)
@@ -307,6 +308,40 @@ class MainActivity : AppCompatActivity() {
         load()
     }
 
+    private fun configurePanelWidth() {
+        val root = findViewById<View>(R.id.playerRoot)
+        val actions = findViewById<LinearLayout>(R.id.panelActions)
+        val buttons = List(actions.childCount) { actions.getChildAt(it) }
+        val maxWidth = (640 * resources.displayMetrics.density).roundToInt()
+        val buttonWidth = buttons.first().layoutParams.width
+        var columns = 0
+
+        root.addOnLayoutChangeListener { _, left, _, right, _, _, _, _, _ ->
+            val width = (right - left).coerceAtMost(maxWidth)
+            if (width <= 0) return@addOnLayoutChangeListener
+            if (panel.layoutParams.width != width) {
+                panel.layoutParams = panel.layoutParams.apply { this.width = width }
+            }
+            val available = width - panel.paddingStart - panel.paddingEnd
+            val nextColumns = (available / buttonWidth).coerceIn(1, buttons.size)
+            if (nextColumns == columns) return@addOnLayoutChangeListener
+            columns = nextColumns
+
+            val focused = actions.findFocus()
+            buttons.forEach { (it.parent as? LinearLayout)?.removeView(it) }
+            actions.removeAllViews()
+            buttons.chunked(columns).forEach { group ->
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                group.forEach { row.addView(it) }
+                actions.addView(row, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ))
+            }
+            focused?.requestFocus()
+        }
+    }
+
     private fun load() {
         status.text = getString(R.string.loading)
         status.visibility = View.VISIBLE
@@ -317,7 +352,7 @@ class MainActivity : AppCompatActivity() {
             // core is still loaded in this process: resume instead of reloading.
             val resuming = Core.isLoaded() == "true"
             val result = runCatching {
-                if (!resuming) Core.loadPlaylist(PLAYLIST_URL)
+                if (!resuming) Core.loadSource(null)
                 names = Core.names()
                 logos = Core.logos()
             }
@@ -328,7 +363,7 @@ class MainActivity : AppCompatActivity() {
                     status.visibility = View.GONE
                     loaded = true
                     readChannelNumbers()
-                    guidePreferences.getString("source", null)?.let { loadGuide(it, report = false) }
+                    reloadSourceGuide(migrate = true)
                     setSearchText(Core.searchText())
                     perform(Core.start())
                     updateLayout()
@@ -376,9 +411,12 @@ class MainActivity : AppCompatActivity() {
 
     private val guidePreferences by lazy { getSharedPreferences("tv_guide", MODE_PRIVATE) }
     private var showingUnavailable = false
+    private var switchingSource = false
+    private var phoneRemoteDialog: AlertDialog? = null
+    private var guideSource: String? = null
     private var lastGuideRefresh = 0L
     private val guideRefresh = Runnable {
-        guidePreferences.getString("source", null)?.let { loadGuide(it, report = false) }
+        guideSource?.let { loadGuide(it, report = false) }
     }
 
     private fun readChannelNumbers() {
@@ -391,6 +429,7 @@ class MainActivity : AppCompatActivity() {
             getString(R.string.tv_guide),
             getString(R.string.unavailable_channels),
             getString(R.string.pin_channel_number),
+            getString(R.string.playlists),
         )
         AlertDialog.Builder(this).setTitle(R.string.channel_options).setItems(choices) { _, item ->
             when (item) {
@@ -401,8 +440,87 @@ class MainActivity : AppCompatActivity() {
                     readChannelNumbers()
                     refreshList(keepPosition = true)
                 }
+                3 -> choosePlaylist()
             }
         }.show()
+    }
+
+    private fun choosePlaylist() {
+        if (switchingSource) return
+        val catalog = JSONObject(Core.sourceCatalog())
+        val sources = catalog.getJSONArray("entries")
+        val ids = List(sources.length()) { sources.getJSONObject(it).getString("id") }
+        val names = Array(sources.length()) { index ->
+            val name = sources.getJSONObject(index).getString("name")
+            val description = when (ids[index]) {
+                "iptv-org" -> getString(R.string.playlist_iptv_org)
+                "free-tv" -> getString(R.string.playlist_free_tv)
+                "iptv-italy" -> getString(R.string.playlist_italy)
+                else -> ""
+            }
+            if (description.isEmpty()) name else "$name · $description"
+        }
+        AlertDialog.Builder(this).setTitle(R.string.playlists)
+            .setSingleChoiceItems(names, ids.indexOf(catalog.getString("active"))) { dialog, item ->
+                dialog.dismiss()
+                if (ids[item] != catalog.getString("active")) {
+                    switchPlaylist(JSONObject().put("kind", "select").put("id", ids[item]))
+                }
+            }
+            .setNeutralButton(R.string.playlist_from_phone) { _, _ -> showRemote() }
+            .setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    private fun switchPlaylist(input: JSONObject) {
+        if (switchingSource) return
+        switchingSource = true
+        phoneRemoteDialog?.dismiss()
+        handler.removeCallbacks(guideRefresh)
+        showOsd(getString(R.string.loading), 5000)
+        io.execute {
+            val result = runCatching {
+                Core.loadSource(input.toString())
+                names = Core.names()
+                logos = Core.logos()
+            }
+            runOnUiThread {
+                switchingSource = false
+                if (isDestroyed) return@runOnUiThread
+                result.onSuccess {
+                    panes.forEach { pane ->
+                        pane.tune = null
+                        pane.idx = -1
+                        handler.removeCallbacks(pane.bufferingTimeout)
+                        pane.exo.stop()
+                    }
+                    adapter.names = names
+                    adapter.logos = logos
+                    readChannelNumbers()
+                    reloadSourceGuide()
+                    setSearchText("")
+                    perform(Core.start())
+                    if (split) {
+                        val otherIndex = Core.neighbor(panes[active].idx, 1).toInt()
+                        if (otherIndex >= 0 && otherIndex != panes[active].idx) playIn(other, otherIndex)
+                    }
+                    if (panel.visibility == View.VISIBLE) refreshList(keepPosition = false)
+                }.onFailure {
+                    if (guideSource != null) handler.postDelayed(guideRefresh, 6 * 60 * 60 * 1000L)
+                    showOsd(getString(R.string.playlist_failed), 5000)
+                }
+            }
+        }
+    }
+
+    private fun reloadSourceGuide(migrate: Boolean = false) {
+        val catalog = JSONObject(Core.sourceCatalog())
+        val stored = if (catalog.isNull("guide")) null else catalog.getString("guide")
+        val legacy = if (migrate && catalog.getString("active") == "iptv-org") {
+            guidePreferences.getString("source", null)
+        } else null
+        guideSource = stored ?: legacy
+        adapter.showGuide = false
+        guideSource?.let { loadGuide(it, report = false, persist = stored == null) }
     }
 
     private fun editGuide() {
@@ -411,7 +529,7 @@ class MainActivity : AppCompatActivity() {
                 android.text.InputType.TYPE_TEXT_VARIATION_URI
             setSingleLine()
             hint = getString(R.string.tv_guide_url)
-            setText(guidePreferences.getString("source", ""))
+            setText(guideSource.orEmpty())
         }
         AlertDialog.Builder(this).setTitle(R.string.tv_guide).setView(field)
             .setPositiveButton(R.string.tv_guide_load) { _, _ ->
@@ -426,16 +544,20 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton(android.R.string.cancel, null).show()
     }
 
-    private fun loadGuide(source: String, report: Boolean) {
+    private fun loadGuide(source: String, report: Boolean, persist: Boolean = report) {
         handler.removeCallbacks(guideRefresh)
         io.execute {
-            val result = runCatching { Core.loadGuide(source) }
+            val result = runCatching {
+                Core.loadGuide(source)
+                if (persist) {
+                    Core.setSourceGuide(source.takeIf { it.isNotEmpty() })
+                    guidePreferences.edit().remove("source").apply()
+                }
+            }
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
                 result.onSuccess {
-                    if (report) {
-                        guidePreferences.edit().putString("source", source.takeIf { it.isNotEmpty() }).apply()
-                    }
+                    guideSource = source.takeIf { it.isNotEmpty() }
                     adapter.showGuide = source.isNotEmpty()
                     if (panel.visibility == View.VISIBLE) refreshList(keepPosition = true)
                     if (report && source.isNotEmpty()) showOsd(getString(R.string.tv_guide_loaded), 3000)
@@ -443,7 +565,7 @@ class MainActivity : AppCompatActivity() {
                     if (report) showOsd(getString(R.string.tv_guide_failed), 5000)
                 }
                 handler.removeCallbacks(guideRefresh)
-                if (!guidePreferences.getString("source", null).isNullOrEmpty()) {
+                if (guideSource != null && !switchingSource) {
                     handler.postDelayed(guideRefresh, 6 * 60 * 60 * 1000L)
                 }
             }
@@ -880,6 +1002,8 @@ class MainActivity : AppCompatActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // While typing a search, keys are text, not remote-control shortcuts.
         if (search.hasFocus() && event.keyCode != KeyEvent.KEYCODE_BACK) return super.dispatchKeyEvent(event)
+        if ((event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) &&
+            findViewById<View>(R.id.panelActions).hasFocus()) return super.dispatchKeyEvent(event)
         if (event.action == KeyEvent.ACTION_DOWN && loaded && handleKey(event.keyCode)) return true
         return super.dispatchKeyEvent(event)
     }
@@ -1113,7 +1237,7 @@ class MainActivity : AppCompatActivity() {
             message.text = getString(R.string.remote_scan, info.getString("address"), info.getString("pin"))
         }
         box.addView(message)
-        AlertDialog.Builder(this).setTitle(R.string.remote).setView(box)
+        phoneRemoteDialog = AlertDialog.Builder(this).setTitle(R.string.remote).setView(box)
             .setPositiveButton(android.R.string.ok, null).show()
     }
 
@@ -1142,8 +1266,19 @@ class MainActivity : AppCompatActivity() {
     /** A request from a phone. */
     private fun onRemote(cmd: JSONObject) {
         if (!loaded) return
-        Log.d(TAG, "remote: $cmd")
+        Log.d(TAG, "remote: ${cmd.optString("cmd")}")
         when (cmd.optString("cmd")) {
+            "playlist" -> {
+                val input = cmd.getJSONObject("input")
+                if (input.getString("kind") == "select") {
+                    switchPlaylist(input)
+                } else if (!switchingSource) {
+                    AlertDialog.Builder(this).setTitle(R.string.playlist_from_phone)
+                        .setMessage(input.getString("name"))
+                        .setPositiveButton(android.R.string.ok) { _, _ -> switchPlaylist(input) }
+                        .setNegativeButton(android.R.string.cancel, null).show()
+                }
+            }
             "action" -> tvAction(cmd.getString("name"), if (cmd.isNull("arg")) null else cmd.optString("arg"))
             "tune" -> {
                 perform(Core.tuneTo(cmd.getInt("idx")))

@@ -6,6 +6,7 @@ pub mod guide;
 pub mod health;
 pub mod logo;
 pub mod playlist;
+pub mod sources;
 pub mod update;
 
 pub use iptv_core::DEFAULT_USER_AGENT;

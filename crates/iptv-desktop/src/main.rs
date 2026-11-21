@@ -24,7 +24,7 @@ use crate::{
     panel::{Hit, Panel, Picker, PickerTab},
 };
 
-const DEFAULT_PLAYLIST: &str = "https://iptv-org.github.io/iptv/index.m3u";
+use iptv_net::sources::Catalog;
 const PANEL_OVERLAY_ID: u32 = 1;
 /// The "this channel has other languages" hint at the bottom.
 const HINT_OVERLAY_ID: u32 = 2;
@@ -49,8 +49,8 @@ const WHEEL_ROWS: isize = 3;
 #[command(version)]
 struct Args {
     /// Playlist URL or local .m3u file.
-    #[arg(short, long, default_value = DEFAULT_PLAYLIST)]
-    playlist: String,
+    #[arg(short, long)]
+    playlist: Option<String>,
 
     /// Path to the mpv executable (default: search PATH and common locations).
     #[arg(long, env = "IPTV_MPV")]
@@ -144,9 +144,71 @@ async fn load_channels(source: &str) -> Result<Vec<iptv_core::Channel>> {
     Ok(channels)
 }
 
+fn start_checks(
+    tuner: &mut Tuner,
+    health: &HealthCache,
+    enabled: bool,
+) -> (tokio::sync::mpsc::UnboundedReceiver<CheckResult>, usize) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut jobs = Vec::new();
+    if enabled {
+        let count = tuner.channels().len();
+        for offset in 0..count {
+            let idx = (tuner.current() + offset) % count;
+            let cached = health.get(&tuner.channels()[idx].url);
+            if let Some((ok, _)) = cached {
+                tuner.set_dead(idx, !ok);
+            }
+            if cached.is_none_or(|(_, fresh)| !fresh) {
+                jobs.push((idx, tuner.channels()[idx].clone()));
+            }
+        }
+    }
+    let total = jobs.len();
+    if total > 0 {
+        health::spawn_checker(jobs, DEFAULT_USER_AGENT, move |result| {
+            tx.send(result).is_ok()
+        });
+    }
+    (rx, total)
+}
+
+fn start_guide(source: Option<String>) -> tokio::sync::mpsc::Receiver<iptv_net::guide::Guide> {
+    let (tx, rx) = tokio::sync::mpsc::channel(1);
+    if let Some(source) = source {
+        tokio::spawn(async move {
+            loop {
+                let source = source.clone();
+                let result =
+                    tokio::task::spawn_blocking(move || iptv_net::guide::Guide::load(&source))
+                        .await;
+                match result {
+                    Ok(Ok(guide)) => {
+                        if tx.send(guide).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(Err(error)) => eprintln!("Could not load TV guide: {error}"),
+                    Err(error) => eprintln!("TV guide worker failed: {error}"),
+                }
+                tokio::select! {
+                    _ = tx.closed() => break,
+                    _ = tokio::time::sleep(Duration::from_secs(6 * 3600)) => {},
+                }
+            }
+        });
+    }
+    rx
+}
+
 async fn run(args: Args) -> Result<()> {
+    let catalog = Catalog::load(&storage::config_dir());
+    let playlist_source = match &args.playlist {
+        Some(source) => source.clone(),
+        None => catalog.current().location(&storage::config_dir())?,
+    };
     if args.list_groups || args.list.is_some() {
-        let channels = load_channels(&args.playlist).await?;
+        let channels = load_channels(&playlist_source).await?;
         let tuner = Tuner::new(channels, &Default::default()).expect("non-empty playlist");
         if args.list_groups {
             for g in tuner.groups() {
@@ -193,7 +255,7 @@ async fn run(args: Args) -> Result<()> {
         .show_text(i18n::t("Loading channels…"), 120_000)
         .await?;
 
-    let channels = load_channels(&args.playlist).await.context(i18n::t(
+    let channels = load_channels(&playlist_source).await.context(i18n::t(
         "Could not load the channel list. Check your internet connection.",
     ))?;
 
@@ -219,40 +281,8 @@ async fn run(args: Args) -> Result<()> {
         "Press 'h' in the player window for the remote-control keys, 'l' for the channel list."
     );
 
-    // Hide channels already known to be dead; queue the rest for checking,
-    // nearest to the current channel first.
     let health = HealthCache::load(&storage::cache_dir());
-    let mut jobs = Vec::new();
-    for idx in 0..tuner.channels().len() {
-        match health.get(&tuner.channels()[idx].url) {
-            Some((ok, fresh)) => {
-                tuner.set_dead(idx, !ok);
-                if !fresh {
-                    jobs.push(idx);
-                }
-            }
-            None => jobs.push(idx),
-        }
-    }
-    let n = tuner.channels().len();
-    let cur = tuner.current();
-    jobs.sort_by_key(|&i| (i + n - cur) % n);
-    let check_total = jobs.len();
-    let (check_tx, mut checks) = tokio::sync::mpsc::unbounded_channel::<CheckResult>();
-    if !args.no_check {
-        let jobs = jobs
-            .into_iter()
-            .map(|i| (i, tuner.channels()[i].clone()))
-            .collect();
-        health::spawn_checker(jobs, DEFAULT_USER_AGENT, move |r| check_tx.send(r).is_ok());
-    } else {
-        drop(check_tx);
-    }
-    eprintln!(
-        "Channel check: {} known dead, {} to check",
-        (0..n).filter(|&i| tuner.is_dead(i)).count(),
-        if args.no_check { 0 } else { check_total }
-    );
+    let (mut checks, check_total) = start_checks(&mut tuner, &health, !args.no_check);
 
     // Events of the small picture's window, tagged with which one it was.
     let (pip_tx, mut pip_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -260,28 +290,16 @@ async fn run(args: Args) -> Result<()> {
     let (logos, mut logo_rx) = logos::Logos::new(storage::cache_dir(), DEFAULT_USER_AGENT);
     // Phone remote requests, forwarded from the remote's server threads.
     let (remote_tx, mut remote_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (guide_tx, mut guide_rx) = tokio::sync::mpsc::channel(1);
-    if let Some(source) = args.guide {
-        tokio::spawn(async move {
-            loop {
-                let source = source.clone();
-                let result =
-                    tokio::task::spawn_blocking(move || iptv_net::guide::Guide::load(&source))
-                        .await;
-                match result {
-                    Ok(Ok(guide)) => {
-                        if guide_tx.send(guide).await.is_err() {
-                            break;
-                        }
-                    }
-                    Ok(Err(error)) => eprintln!("Could not load TV guide: {error}"),
-                    Err(error) => eprintln!("TV guide worker failed: {error}"),
-                }
-                tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
-            }
-        });
-    }
+    let guide_source = args.guide.or_else(|| {
+        if args.playlist.is_none() {
+            catalog.current().guide.clone()
+        } else {
+            None
+        }
+    });
+    let mut guide_rx = start_guide(guide_source);
     let mut app = App {
+        catalog,
         guide: iptv_net::guide::Guide::default(),
         playback_deadline: None,
         playback_buffering: false,
@@ -330,7 +348,9 @@ async fn run(args: Args) -> Result<()> {
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     let mut last_save = Instant::now();
     let mut last_guide_redraw = Instant::now();
-    let mut checks_open = true;
+    let mut checks_open = check_total > 0;
+    let (playlist_tx, mut playlist_rx) = tokio::sync::mpsc::channel(1);
+    let mut switching_playlist = false;
 
     // Look for a newer version in the background; playback isn't delayed.
     let (update_tx, mut update_rx) = tokio::sync::oneshot::channel();
@@ -424,7 +444,60 @@ async fn run(args: Args) -> Result<()> {
                     app.view_dirty = true;
                 }
             },
-            Some(cmd) = remote_rx.recv() => app.on_remote(cmd).await?,
+            Some(cmd) = remote_rx.recv() => {
+                if let remote::Command::Playlist { input } = cmd {
+                    if switching_playlist { continue; }
+                    switching_playlist = true;
+                    app.player.show_text("Loading playlist…", 5000).await?;
+                    let mut catalog = app.catalog.clone();
+                    let tx = playlist_tx.clone();
+                    tokio::spawn(async move {
+                        let result = async {
+                            let dir = storage::config_dir();
+                            catalog.select(input, &dir)?;
+                            let source = catalog.current();
+                            let mut channels = load_channels(&source.location(&dir)?).await?;
+                            iptv_net::sources::retain_web_channels(&mut channels)?;
+                            catalog.save(&dir)?;
+                            Ok::<_, anyhow::Error>((catalog, channels))
+                        }.await;
+                        let _ = tx.send(result).await;
+                    });
+                } else {
+                    app.on_remote(cmd).await?;
+                }
+            }
+            Some(result) = playlist_rx.recv() => {
+                switching_playlist = false;
+                match result {
+                    Ok((catalog, channels)) => {
+                        app.catalog = catalog;
+                        guide_rx = start_guide(app.catalog.current().guide.clone());
+                        app.guide = iptv_net::guide::Guide::default();
+                        app.pip = None;
+                        if app.remote_card { app.close_remote_card().await?; }
+                        app.picker = None;
+                        app.typing = false;
+                        app.query.clear();
+                        app.digit_deadline = None;
+                        app.tuner = Tuner::new(channels, &app.tuner.state()).expect("non-empty playlist");
+                        (checks, app.check_total) = start_checks(&mut app.tuner, &app.health, !args.no_check);
+                        app.check_done = 0;
+                        checks_open = app.check_total > 0;
+                        if let Some(remote) = &app.remote {
+                            let mut snapshot = remote::Snapshot::from_tuner(&app.tuner);
+                            snapshot.playlists = app.catalog.public();
+                            remote.update(|current| *current = snapshot);
+                        }
+                        let effects = app.tuner.start();
+                        app.apply(effects).await?;
+                    }
+                    Err(error) => {
+                        eprintln!("Could not open playlist: {error}");
+                        app.player.show_text("Could not open playlist", 5000).await?;
+                    }
+                }
+            }
             Some((url, img)) = logo_rx.recv() => {
                 app.logos.loaded(url, img);
                 app.place_list_logos().await?;
@@ -502,6 +575,7 @@ async fn run(args: Args) -> Result<()> {
 }
 
 struct App {
+    catalog: Catalog,
     guide: iptv_net::guide::Guide,
     playback_deadline: Option<Instant>,
     playback_buffering: bool,
@@ -947,8 +1021,10 @@ impl App {
                 pin
             }
         };
-        let (server, rx) = Remote::start(pin, remote::Snapshot::from_tuner(&self.tuner))
-            .context("could not start the phone remote")?;
+        let mut snapshot = remote::Snapshot::from_tuner(&self.tuner);
+        snapshot.playlists = self.catalog.public();
+        let (server, rx) =
+            Remote::start(pin, snapshot).context("could not start the phone remote")?;
         eprintln!(
             "Phone remote: {} (PIN {})",
             server
@@ -1059,6 +1135,7 @@ impl App {
                 let fx = self.tuner.add_favorites(urls, missing);
                 self.apply(fx).await
             }
+            remote::Command::Playlist { .. } => Ok(()),
             remote::Command::Track { kind, id } => {
                 let kind = match kind {
                     remote::TrackKind::Audio => TrackKind::Audio,

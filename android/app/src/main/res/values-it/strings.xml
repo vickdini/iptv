@@ -54,4 +54,10 @@
     <string name="tv_guide_failed">Impossibile caricare la guida TV. Controlla l’URL XMLTV.</string>
     <string name="tv_guide_loaded">Guida TV caricata</string>
     <string name="stream_buffering">Caricamento del flusso…</string>
+    <string name="playlists">Playlist</string>
+    <string name="playlist_from_phone">Aggiungi dal telefono</string>
+    <string name="playlist_failed">Impossibile aprire la playlist</string>
+    <string name="playlist_iptv_org">Canali pubblici da tutto il mondo</string>
+    <string name="playlist_free_tv">Canali in chiaro da tutto il mondo</string>
+    <string name="playlist_italy">Canali italiani</string>
 </resources>

@@ -15,7 +15,9 @@ use anyhow::{anyhow, bail, Result};
 use iptv_core::{tuner::DIGIT_TIMEOUT_MS, Action, Channel, Effect, SavedState, Tuner};
 use iptv_net::{
     health::{self, CheckResult, HealthCache, Probe},
-    playlist, DEFAULT_USER_AGENT,
+    playlist,
+    sources::{Catalog, Input},
+    DEFAULT_USER_AGENT,
 };
 use iptv_remote::{Command, Remote, Snapshot, TrackInfo};
 use serde::Deserialize;
@@ -39,6 +41,13 @@ pub fn init(cache: PathBuf, config: PathBuf) {
 
 /// Downloads/refreshes the playlist and (re)creates the app state.
 pub fn load_playlist(url: &str) -> Result<String> {
+    load_playlist_with(url, |_, _| Ok(()))
+}
+
+fn load_playlist_with(
+    url: &str,
+    before_install: impl FnOnce(&std::path::Path, &mut Vec<Channel>) -> Result<()>,
+) -> Result<String> {
     let (cache, config) = {
         let dirs = DIRS.lock().unwrap();
         let d = dirs
@@ -46,18 +55,25 @@ pub fn load_playlist(url: &str) -> Result<String> {
             .ok_or_else(|| anyhow!("Core.init was not called"))?;
         (d.cache.clone(), d.config.clone())
     };
-    let (channels, freshness) = playlist::load(url, &cache)?;
+    let (mut channels, freshness) = playlist::load(url, &cache)?;
     if channels.is_empty() {
         bail!("The playlist contains no channels.");
     }
+    before_install(&config, &mut channels)?;
     let n = channels.len();
     let app = App::new(channels, cache, config, true);
     if let Some(remote) = REMOTE.lock().unwrap().as_ref() {
-        let fresh = Snapshot::from_tuner(&app.tuner);
+        let mut fresh = Snapshot::from_tuner(&app.tuner);
+        fresh.playlists = Catalog::load(&app.config_dir).public();
         remote.update(|s| *s = fresh);
     }
     // Replacing the old app (if any) drops it, which stops its checks.
-    *APP.lock().unwrap() = Some(app);
+    let mut guard = APP.lock().unwrap();
+    let mut app = app;
+    if let Some(previous) = guard.as_ref() {
+        app.tune_seq = previous.tune_seq + 1;
+    }
+    *guard = Some(app);
     Ok(json!({ "channels": n, "freshness": format!("{freshness:?}") }).to_string())
 }
 
@@ -74,6 +90,46 @@ pub fn with<T>(f: impl FnOnce(&mut App) -> Result<T>) -> Result<T> {
         .as_mut()
         .ok_or_else(|| anyhow!("playlist not loaded yet"))?;
     f(app)
+}
+
+fn config_dir() -> Result<PathBuf> {
+    DIRS.lock()
+        .unwrap()
+        .as_ref()
+        .map(|dirs| dirs.config.clone())
+        .ok_or_else(|| anyhow!("Core.init was not called"))
+}
+
+pub fn source_catalog() -> Result<String> {
+    let catalog = Catalog::load(&config_dir()?);
+    let mut value = catalog.public();
+    value["guide"] = json!(catalog.current().guide);
+    Ok(value.to_string())
+}
+
+pub fn load_source(input: Option<Input>) -> Result<String> {
+    let dir = config_dir()?;
+    let mut catalog = Catalog::load(&dir);
+    let changed = input.is_some();
+    if let Some(input) = input {
+        catalog.select(input, &dir)?;
+    }
+    let source = catalog.current();
+    load_playlist_with(&source.location(&dir)?, |dir, channels| {
+        iptv_net::sources::retain_web_channels(channels)?;
+        if changed {
+            catalog.save(dir)?;
+        }
+        Ok(())
+    })
+}
+
+pub fn set_source_guide(guide: Option<String>) -> Result<String> {
+    let dir = config_dir()?;
+    let mut catalog = Catalog::load(&dir);
+    catalog.set_guide(guide);
+    catalog.save(&dir)?;
+    Ok("{}".into())
 }
 
 pub fn load_guide(source: &str) -> Result<String> {
@@ -323,7 +379,9 @@ impl App {
                     pin
                 }
             };
-            let (server, rx) = Remote::start(pin, Snapshot::from_tuner(&self.tuner))?;
+            let mut snapshot = Snapshot::from_tuner(&self.tuner);
+            snapshot.playlists = Catalog::load(&self.config_dir).public();
+            let (server, rx) = Remote::start(pin, snapshot)?;
             *REMOTE_RX.lock().unwrap() = Some(rx);
             *slot = Some(server);
         }

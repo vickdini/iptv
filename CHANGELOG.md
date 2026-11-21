@@ -6,6 +6,17 @@ What's new in each version of IPTV. Downloads for every version are on the
 When releasing, add a section for the new version at the top. The release
 workflow uses that section as the release notes.
 
+## [0.15.0] - 2026-11-21
+
+### Added
+- **Playlists:** switch between iptv-org, Free-TV/IPTV, IPTV-Italy, and saved
+  sources. Use the phone remote on desktop and Android to paste an M3U URL
+  or upload a file, with an optional XMLTV guide for each source.
+
+### Fixed
+- **Android channel list:** a wider panel and a toolbar that wraps keep
+  controls such as Cast and Close visible on narrow screens.
+
 ## [0.14.0] - 2026-11-21
 
 ### Added
@@ -210,6 +221,7 @@ First release, for Windows.
 - **GPL-3.0-or-later license**, plus a disclaimer that the app only loads a
   publicly available playlist.
 
+[0.15.0]: https://github.com/vickdini/iptv/releases/tag/v0.15.0
 [0.14.0]: https://github.com/vickdini/iptv/releases/tag/v0.14.0
 [0.13.0]: https://github.com/vickdini/iptv/releases/tag/v0.13.0
 [0.12.0]: https://github.com/vickdini/iptv/releases/tag/v0.12.0
